@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="xposed_description">Shows the Sony headphones as a card in ColorOS My Devices.</string>
+    <string name="widget_battery_description">Battery and noise mode; tap to switch modes</string>
+    <string name="widget_status_description">Headphones status at a glance</string>
+    <string name="widget_controls_description">Battery and noise cancelling, ambient or off</string>
+    <string name="widget_dashboard_description">Everything: battery, codec, modes, DSEE and Speak-to-Chat</string>
+    <string name="shortcut_chatgpt">Ask ChatGPT</string>
+    <string name="shortcut_claude">Ask Claude</string>
+</resources>

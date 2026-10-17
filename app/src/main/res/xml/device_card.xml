@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Card config read by ColorOS My Devices (ConfigXmlParser) through the oplus.devicecards.provider meta-data. -->
+<configuration previewImage="@drawable/card_xm4" supportStyle="1" version="1" />

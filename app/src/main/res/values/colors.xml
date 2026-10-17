@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Material You (wallpaper) tones, so the window and icon match the dynamic Compose theme. -->
+    <color name="surface">@android:color/system_neutral1_10</color>
+    <color name="primary">@android:color/system_accent1_700</color>
+    <color name="icon_bg">@android:color/system_accent1_100</color>
+</resources>

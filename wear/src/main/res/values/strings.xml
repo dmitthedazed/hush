@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hush</string>
+    <string name="tile_hush">Hush</string>
+    <string name="complication_battery">Headphone battery</string>
+    <string name="complication_noise">Noise mode (tap to switch)</string>
+</resources>
