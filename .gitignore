@@ -1,0 +1,22 @@
+# Gradle / Android Studio
+.gradle/
+.kotlin/
+build/
+local.properties
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Release artifacts live on GitHub Releases, not in git
+dist/
+*.apk
+*.aab
+*.idsig
+
+# Third-party apps studied for the ColorOS integration (not ours to redistribute)
+research/host-apks/
+
+# Personal working notes
+HANDOFF.md

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:keep="@array/android_wear_capabilities">
+    <!-- The watch app finds this phone through this capability (HushLink.PHONE_CAPABILITY). -->
+    <string-array name="android_wear_capabilities" translatable="false">
+        <item>hush_phone</item>
+    </string-array>
+</resources>
