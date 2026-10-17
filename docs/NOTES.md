@@ -187,7 +187,7 @@ Enable with `su -c "/data/adb/lspd/cli scope set com.occaecat.hush com.heytap.my
   keep updating 20 % / 20 %, UpdateMethod `0x25` (MediaTek, background, resumable), device-binding id (16 hex,
   hidden like the serial); `36 01` (FW_UPDATE_MODE) gets no answer. Plus series (0x30 Premium), colour, protocol
   version 0x7000 and the supported-function list.
-- **Firmware update check** (Device → About → Firmware update), Sound Connect's AutoMagic (`com.sony.songpal.automagic.e`,
+- **Firmware update check** (Device → About → Updates), Sound Connect's AutoMagic (`com.sony.songpal.automagic.e`,
   `kh.d`): GET `https://info.update.sony.net/<category>/<service id>/info/info.xml` (XM4: `HP002/MDRID294301`).
   Header lines `eaid:ENC0003` (AES-128-ECB, zero padding, key `4fa27999ffd08b1fe4d260d57b6d3c17`; ENC0002 is 3DES with
   a zero key), `daid:HAS0003` (SHA-1), `digest:` = sha1(hex(sha1(decrypted body)) + serviceId + category), then a
@@ -216,7 +216,18 @@ Enable with `su -c "/data/adb/lspd/cli scope set com.occaecat.hush com.heytap.my
   where/when the headset last disconnected (needs location, "all the time" for screen-off disconnects).
   `insights.json`, 30 days.
 - **Firmware watch**: a persisted weekly JobScheduler job (id 4711, any network) re-runs `FirmwareCheck` for the last
-  headset and notifies once per new version ("Update in Sound Connect"; tapping opens the firmware page).
+  headset and notifies once per new version ("Update in Sound Connect"; tapping opens Updates). The same job checks
+  Hush's own releases.
+- **Updates** (Device → About → Updates, `ui/UpdatesPage.kt`): one page for Hush and the headset firmware; the row's
+  summary names whatever can be updated. Hush's part is `update/AppUpdate.kt`: GET
+  `api.github.com/repos/dmitthedazed/hush/releases/latest` (no token; 404 = no releases yet; cached 6 h), version from
+  `tag_name` (`v0.16.0`), the APK is the asset ending in `-phone.apk`, `SHA256SUMS.txt` is checked when the release
+  has one. The APK is downloaded to `cacheDir/updates`, its package name checked, then installed through a
+  `PackageInstaller` session (`InstallReceiver` gets the status and opens Android's confirmation;
+  `USER_ACTION_NOT_REQUIRED` makes later updates silent once Hush is the installer of record). Needs
+  `REQUEST_INSTALL_PACKAGES` and the per-app "Install unknown apps" switch, which the page asks for. Android rejects
+  an APK signed with another key, so releases must be signed with the same key as the installed build.
+  `scripts/release.sh <version>` builds, signs, writes `SHA256SUMS.txt` and creates the GitHub release.
 - **Help** (Device → About → Help): the model's full Help Guide (`helpguide.sony.net/mdr/<model>/v1/<lang>/`), the
   tour and How to use, and Concierge articles — HELP `dashboard` / `connectionErrorDialog`, DIRECT
   `2DEVICE_MULTIPOINT_GUIDE`, `HPC_FW_UPDATE_COMPATIBLE_INFO`, `SETTING_COMPATIBLE_DEVICE_LIST`. Sony's site rejects

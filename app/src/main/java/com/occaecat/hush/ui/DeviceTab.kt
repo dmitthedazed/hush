@@ -94,11 +94,12 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
     val dialogs = rememberDialogState()
     var guide by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var details by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    var fwPage by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var updates by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val fw = rememberFirmwareCheck(state)
+    val appUpdate = rememberAppUpdate()
     var page by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     val link by DeepLink.target.collectAsState()
-    LaunchedEffect(link) { if (link == "firmware") { fwPage = true; DeepLink.consume() } }
+    LaunchedEffect(link) { if (link == "updates" || link == "firmware") { updates = true; DeepLink.consume() } }
     val busy = state.audioSettling || state.phase != Phase.CONNECTED
     val connected = state.phase == Phase.CONNECTED || state.phase == Phase.RECONNECTING
 
@@ -114,11 +115,12 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
         if (!connected) item { InsightsSection(state, ItemWidth) { page = it } }
         if (!connected) item {
             Column(ItemWidth.padding(bottom = Space.l)) {
-                SectionHeader("About")
+                SectionHeader("About", top = Space.s)
                 SegmentedGroup {
-                    ValueRow(0, 3, Icons.AutoMirrored.Outlined.HelpOutline, "Help", "Guide, tour and Sony support") { page = "help" }
-                    ValueRow(1, 3, Icons.Outlined.Backup, "Backup & restore", "Move Hush to a new phone") { page = "backup" }
-                    ValueRow(2, 3, Icons.Outlined.Favorite, "About Hush", "Version, author, licenses") { page = "about" }
+                    ValueRow(0, 4, Icons.Outlined.SystemUpdate, "Updates", updatesSummary(appUpdate, fw)) { updates = true }
+                    ValueRow(1, 4, Icons.AutoMirrored.Outlined.HelpOutline, "Help", "Guide, tour and Sony support") { page = "help" }
+                    ValueRow(2, 4, Icons.Outlined.Backup, "Backup & restore", "Move Hush to a new phone") { page = "backup" }
+                    ValueRow(3, 4, Icons.Outlined.Favorite, "About Hush", "Version, author, licenses") { page = "about" }
                 }
             }
         }
@@ -158,7 +160,7 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
                     }
                 }
                 Column(ItemWidth) {
-                    SectionHeader("Buttons")
+                    SectionHeader("Buttons", top = Space.s)
                     SegmentedGroup { rows.forEachIndexed { i, row -> row(i, rows.size) } }
                     AssistantHint(ai, state)
                 }
@@ -168,7 +170,7 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
             // ---------------------------------------------------------------- wearing
             item {
                 Column(ItemWidth) {
-                    SectionHeader("Wearing")
+                    SectionHeader("Wearing", top = Space.s)
                     val n = if (state.pauseWhenRemoved != null) 2 else 1
                     SegmentedGroup {
                         OptimizerRow(state, vm, 0, n)
@@ -188,7 +190,7 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
             state.speakToChat?.let { stc ->
                 item {
                     Column(ItemWidth) {
-                        SectionHeader("Conversation")
+                        SectionHeader("Conversation", top = Space.s)
                         val d = state.speakToChatDetail
                         val count = if (stc && d != null) 4 else 1
                         SegmentedGroup {
@@ -239,7 +241,7 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
             }
             if (power.isNotEmpty()) item {
                 Column(ItemWidth) {
-                    SectionHeader("Power & prompts")
+                    SectionHeader("Power & prompts", top = Space.s)
                     SegmentedGroup { power.forEachIndexed { i, row -> row(i, power.size) } }
                 }
             }
@@ -247,9 +249,9 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
             // ---------------------------------------------------------------- about
             item {
                 Column(ItemWidth.padding(bottom = Space.l)) {
-                    SectionHeader("About")
+                    SectionHeader("About", top = Space.s)
                     SegmentedGroup {
-                        ValueRow(0, 5, Icons.Outlined.SystemUpdate, "Firmware update", firmwareSummary(fw, state)) { fwPage = true }
+                        ValueRow(0, 5, Icons.Outlined.SystemUpdate, "Updates", updatesSummary(appUpdate, fw)) { updates = true }
                         ValueRow(1, 5, Icons.AutoMirrored.Outlined.HelpOutline, "Help", "Guide, tour and Sony support") { page = "help" }
                         ValueRow(2, 5, Icons.Outlined.Backup, "Backup & restore", "Move Hush to a new phone") { page = "backup" }
                         ValueRow(3, 5, Icons.Outlined.Info, "Device details",
@@ -263,7 +265,7 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
     DialogHost(dialogs)
     if (guide) GuidePage(state) { guide = false }
     if (details) DeviceDetailsPage(state) { details = false }
-    if (fwPage) FirmwarePage(state, fw) { fwPage = false }
+    if (updates) UpdatesPage(state, appUpdate, fw) { updates = false }
     when (val p = page) {
         null -> {}
         "help" -> HelpPage(state, onGuide = { page = null; guide = true }, onTour = { page = "tour" }) { page = null }
@@ -380,7 +382,7 @@ private fun ConnectionSection(state: HeadphonesState, vm: HeadphonesController, 
     val mpOn = multipoint?.let { state.generalValues[it.id] }
     val peers = state.peers
     Column(modifier) {
-        SectionHeader("Connection")
+        SectionHeader("Connection", top = Space.s)
         SegmentedGroup {
             val rows = buildList<@Composable (Int, Int) -> Unit> {
                 if (multipoint != null && mpOn != null) add { i, n ->
@@ -540,7 +542,8 @@ private fun AssistantHint(ui: AssistantUi, state: HeadphonesState) {
             "which takes over touch and hold. Set it to Ambient Sound Control to use ${who.label}."
         !ui.handles -> "Touch and hold the right ear cup. The first time, Android asks which app to use: " +
             "pick \u201cHush AI assistant\u201d and \u201cAlways\u201d."
-        else -> if (who.pkg != null) "Touch and hold the right ear cup to talk to ${who.label}." else "Touch and hold the right ear cup: ${who.label.lowercase()}."
+        // The row above already says what touch and hold does.
+        else -> null
     }
     hint?.let {
         Text(

@@ -13,6 +13,7 @@ import android.content.Intent
 import android.net.Uri
 import com.occaecat.hush.HeadphonesController
 import com.occaecat.hush.R
+import com.occaecat.hush.update.AppUpdate
 import com.occaecat.hush.update.FirmwareCheck
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,11 +25,13 @@ import kotlinx.coroutines.launch
 /**
  * Weekly background check of Sony's update server for the last connected headset. The headset's ids (category,
  * service id, model, firmware, serial) are remembered while it is connected; a JobScheduler job (any network,
- * persisted across reboots) runs [FirmwareCheck] once a week and notifies once per new version.
+ * persisted across reboots) runs [FirmwareCheck] once a week and notifies once per new version. The same job checks
+ * Hush's own GitHub releases ([AppUpdate]).
  */
 object FirmwareWatch {
     private const val JOB_ID = 4711
     private const val CHANNEL = "firmware"
+    private const val APP_CHANNEL = "app_updates"
     private const val PREFS = "fw_watch"
 
     fun start(context: Context) {
@@ -61,6 +64,35 @@ object FirmwareWatch {
     }
 
     internal suspend fun run(c: Context) {
+        val app = runCatching { checkApp(c) }
+        runCatching { checkFirmware(c) }.getOrThrow()
+        app.getOrThrow()
+    }
+
+    private suspend fun checkApp(c: Context) {
+        val r = AppUpdate.check(c, force = true)
+        val v = r.release?.version?.takeIf { r.available } ?: return
+        val p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (p.getString("notified_app", null) == v) return
+        p.edit().putString("notified_app", v).apply()
+        val nm = c.getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel(APP_CHANNEL, "App updates", NotificationManager.IMPORTANCE_DEFAULT))
+        val text = r.release.notes?.lineSequence()?.map { it.trim().trimStart('#', '-', '*', ' ') }?.firstOrNull { it.isNotBlank() }
+            ?: "Installed ${r.installed}"
+        nm.notify(JOB_ID + 1, android.app.Notification.Builder(c, APP_CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_headphones)
+            .setContentTitle("Hush $v is available")
+            .setContentText(text)
+            .setContentIntent(openUpdates(c))
+            .setAutoCancel(true)
+            .build())
+    }
+
+    private fun openUpdates(c: Context) = PendingIntent.getActivity(c, 21,
+        Intent(c, com.occaecat.hush.MainActivity::class.java).putExtra("open", "updates").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+
+    private suspend fun checkFirmware(c: Context) {
         val p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val category = p.getString("category", null) ?: return
         val service = p.getString("service", null) ?: return
@@ -78,9 +110,7 @@ object FirmwareWatch {
         val pkg = "com.sony.songpal.mdr"
         val sc = c.packageManager.getLaunchIntentForPackage(pkg) ?: Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg"))
         val update = PendingIntent.getActivity(c, 20, sc.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE)
-        val open = PendingIntent.getActivity(c, 21,
-            Intent(c, com.occaecat.hush.MainActivity::class.java).putExtra("open", "firmware").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val open = openUpdates(c)
         val text = r.changes ?: "Installed ${r.current}"
         nm.notify(JOB_ID, android.app.Notification.Builder(c, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_headphones)

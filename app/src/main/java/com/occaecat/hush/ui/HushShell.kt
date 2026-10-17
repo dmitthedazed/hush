@@ -46,7 +46,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.background
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.layout
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
@@ -284,12 +283,7 @@ fun TabScaffold(
             if (hero != null) {
                 item(span = StaggeredGridItemSpan.FullLine, key = "hero") {
                     // Cancel the grid's side padding so the hero runs from edge to edge.
-                    val side = Space.m
-                    Box(Modifier.layout { m, c ->
-                        val extra = (side * 2).roundToPx()
-                        val p = m.measure(c.copy(minWidth = c.maxWidth + extra, maxWidth = c.maxWidth + extra))
-                        layout(c.maxWidth, p.height) { p.place(-extra / 2, 0) }
-                    }) { hero() }
+                    Box(Modifier.bleed(Space.m)) { hero() }
                 }
             }
             content()
