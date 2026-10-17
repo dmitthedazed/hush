@@ -4,7 +4,6 @@ package com.occaecat.hush.ui
 
 import android.content.Context
 import android.media.AudioManager
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -204,7 +203,8 @@ fun FindYourEqDialog(vm: HeadphonesController, onDone: (saved: Boolean) -> Unit)
         }
     }
 
-    BackHandler {
+    val stepBack = stage == FyeStage.ROUND_2 || stage == FyeStage.RESULT
+    fun back() {
         when (stage) {
             FyeStage.ROUND_2 -> { stage = FyeStage.ROUND_1; first?.let { audition(Fye.firstRound.getValue(it)) } }
             FyeStage.RESULT -> { stage = FyeStage.ROUND_2; after = true; tuned?.let(::audition) }
@@ -216,7 +216,8 @@ fun FindYourEqDialog(vm: HeadphonesController, onDone: (saved: Boolean) -> Unit)
         onDismissRequest = ::cancel,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+        // A step back within the test springs the page back; from the first round back closes it.
+        Surface(Modifier.fillMaxSize().predictiveBack(exits = !stepBack, onBack = ::back), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxSize()) {
                 TopAppBar(
                     title = { Text("Find Your Equalizer") },

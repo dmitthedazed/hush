@@ -354,16 +354,19 @@ private fun PresetPicker(eq: EqState, presets: List<Pair<Int, String>>, library:
 private fun PresetChips(items: List<Triple<String, Boolean, () -> Unit>>) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s), verticalArrangement = Arrangement.spacedBy(Space.s)) {
         items.forEach { (name, checked, onClick) ->
+            val press = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
             ToggleButton(
                 checked = checked,
                 onCheckedChange = { onClick() },
+                interactionSource = press,
+                modifier = Modifier.squishy(press, 0.9f),
                 colors = ToggleButtonDefaults.toggleButtonColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     contentColor = MaterialTheme.colorScheme.onSurface,
                 ),
             ) {
                 if (checked) {
-                    Icon(Icons.Filled.Check, null, Modifier.size(ToggleButtonDefaults.IconSize))
+                    Icon(Icons.Filled.Check, null, Modifier.size(ToggleButtonDefaults.IconSize).hopOnSelect(checked))
                     Spacer(Modifier.size(ToggleButtonDefaults.IconSpacing))
                 }
                 Text(name)

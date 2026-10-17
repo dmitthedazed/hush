@@ -104,6 +104,12 @@ import com.occaecat.hush.R
 import com.occaecat.hush.Phase
 import com.occaecat.hush.mdr.AmbientMode
 import kotlin.math.roundToInt
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layoutId
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.util.lerp
 
 @Composable
 fun ListenTab(state: HeadphonesState, vm: HeadphonesController) {
@@ -118,7 +124,7 @@ fun ListenTab(state: HeadphonesState, vm: HeadphonesController) {
                 IconButton(onClick = { vm.refreshBattery() }) { Icon(Icons.Outlined.Refresh, "Refresh battery") }
             }
         },
-        hero = if (showHero) ({ ListenHero(state, vm::refreshBattery) }) else null,
+        pinnedHero = if (showHero) ({ collapse -> ListenHero(state, collapse, vm::refreshBattery) }) else null,
     ) {
         when (state.phase) {
             Phase.CONNECTING -> if (!showHero) wideItem { ConnectingHero(state, ItemWidth) }
@@ -195,10 +201,12 @@ private fun BatteryGauge(level: Int?, charging: Boolean) {
 
 /**
  * The hero: the top of the screen as one surfaceContainerHigh block (status bar included, rounded only at the
- * bottom), the bare product render inside the battery ring, and the name, level and chips under it.
+ * bottom), the bare product render inside the battery ring, and the name, level and chips under it. It stays
+ * pinned; as the page scrolls it folds into a compact bar (small render on the left, name and level beside it,
+ * chips at the end) so the cards get the room back.
  */
 @Composable
-private fun ListenHero(state: HeadphonesState, onRefresh: () -> Unit) {
+private fun ListenHero(state: HeadphonesState, collapse: HeroCollapse, onRefresh: () -> Unit) {
     val level = state.battery
     val connected = state.phase == Phase.CONNECTED || state.phase == Phase.RECONNECTING
     val layout = LocalLayout.current
@@ -208,53 +216,143 @@ private fun ListenHero(state: HeadphonesState, onRefresh: () -> Unit) {
     val shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)
     Box(
         Modifier.fillMaxWidth().clip(shape).background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout.only(WindowInsetsSides.Top)))
-            .padding(top = Space.s, bottom = Space.l),
+            .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout.only(WindowInsetsSides.Top))),
     ) {
-        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            // Tapping the headphones re-reads the battery (the app bar and its refresh button are gone).
-            Box(
-                Modifier.height(art).aspectRatio(0.8f).clip(MaterialTheme.shapes.extraLarge)
-                    .clickable(enabled = state.phase == Phase.CONNECTED, onClickLabel = "Refresh battery", onClick = onRefresh),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (state.phase == Phase.CONNECTING) LoadingIndicator(Modifier.align(Alignment.TopCenter).size(40.dp))
-                Image(
-                    painterResource(renderFor(state.modelColor)), contentDescription = null,
-                    modifier = Modifier.fillMaxSize(0.94f),
-                    contentScale = ContentScale.Fit,
-                    alpha = if (connected) 1f else 0.5f,
-                    colorFilter = if (connected) null else ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }),
+        Layout(
+            content = {
+                // Tapping the headphones re-reads the battery (the app bar and its refresh button are gone).
+                // Behind the render a blob takes the shape of the noise mode (sealed cookie, open flower, plain
+                // circle) and jiggles into each new one; tapping squishes the whole thing and re-reads the battery.
+                val press = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                val blob by androidx.compose.animation.animateColorAsState(
+                    when {
+                        !connected -> MaterialTheme.colorScheme.surfaceContainerHighest
+                        state.ncAsm?.mode == AmbientMode.AMBIENT -> MaterialTheme.colorScheme.tertiaryContainer
+                        state.ncAsm?.mode == AmbientMode.OFF -> MaterialTheme.colorScheme.secondaryContainer
+                        else -> MaterialTheme.colorScheme.primaryContainer
+                    },
+                    MaterialTheme.motionScheme.slowEffectsSpec(), label = "blob",
                 )
-            }
-            Spacer(Modifier.height(Space.m))
-            Text(
-                state.displayName,
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            if (connected) {
-                Spacer(Modifier.height(Space.s))
-                BatteryGauge(level, state.charging)
-                val codec = state.codec?.takeIf { it != Codec.UNSETTLED }
-                val dsee = state.dseeAuto == true
-                if (codec != null || dsee) {
-                    Spacer(Modifier.height(Space.s))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        codec?.let { c -> codecLogo(c)?.let { LogoPill(it, c.label) } ?: Pill(c.label) }
-                        // Shown while DSEE Extreme is switched on; it brightens while it is actually upscaling.
-                        if (dsee) LogoPill(R.drawable.logo_dsee_extreme, "DSEE Extreme", dimmed = !state.dseeActive)
+                Box(
+                    Modifier.layoutId(HeroPart.Art).height(art).aspectRatio(0.8f)
+                        .squishy(press, 0.9f)
+                        .clickable(
+                            interactionSource = press, indication = null,
+                            enabled = state.phase == Phase.CONNECTED, onClickLabel = "Refresh battery", onClick = onRefresh,
+                        )
+                        .morphingBlob(blobFor(if (connected) state.ncAsm?.mode else null), blob, spinMillis = if (connected) 40_000 else 90_000),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (state.phase == Phase.CONNECTING) LoadingIndicator(Modifier.align(Alignment.TopCenter).size(40.dp))
+                    Image(
+                        painterResource(renderFor(state.modelColor)), contentDescription = null,
+                        modifier = Modifier.fillMaxSize(0.94f),
+                        contentScale = ContentScale.Fit,
+                        alpha = if (connected) 1f else 0.5f,
+                        colorFilter = if (connected) null else ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }),
+                    )
+                }
+                Text(
+                    state.displayName,
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.layoutId(HeroPart.Name),
+                )
+                if (connected) {
+                    Box(Modifier.layoutId(HeroPart.Status)) { BatteryGauge(level, state.charging) }
+                    val codec = state.codec?.takeIf { it != Codec.UNSETTLED }
+                    val dsee = state.dseeAuto == true
+                    if (codec != null || dsee) {
+                        Row(
+                            Modifier.layoutId(HeroPart.Chips),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            codec?.let { c -> codecLogo(c)?.let { LogoPill(it, c.label) } ?: Pill(c.label) }
+                            // Shown while DSEE Extreme is switched on; it brightens while it is actually upscaling.
+                            if (dsee) LogoPill(R.drawable.logo_dsee_extreme, "DSEE Extreme", dimmed = !state.dseeActive)
+                        }
+                    }
+                } else {
+                    Text(
+                        subtitleFor(state) ?: "Not connected",
+                        style = MaterialTheme.typography.headlineSmallEmphasized,
+                        modifier = Modifier.layoutId(HeroPart.Status),
+                    )
+                }
+            },
+        ) { measurables, c ->
+            val width = c.maxWidth
+            val side = Space.l.roundToPx()
+            val m = Space.m.roundToPx()
+            val s = Space.s.roundToPx()
+            val loose = Constraints(maxWidth = (width - side * 2).coerceAtLeast(0))
+            fun part(p: HeroPart) = measurables.firstOrNull { it.layoutId == p }?.measure(loose)
+            val artP = part(HeroPart.Art)!!
+            val nameP = part(HeroPart.Name)!!
+            val statusP = part(HeroPart.Status)
+            val chipsP = part(HeroPart.Chips)
+            val statusH = statusP?.height ?: 0
+            val chipsH = chipsP?.height ?: 0
+
+            // Full: everything in one centred column under the render.
+            val fullArtY = s
+            val fullNameY = fullArtY + artP.height + m
+            val fullStatusY = fullNameY + nameP.height + s
+            val fullChipsY = fullStatusY + statusH + s
+            val fullH = (if (chipsP != null) fullChipsY + chipsH else fullStatusY + statusH) + Space.l.roundToPx()
+
+            // Compact: a small render, the name and level stacked beside it, the chips at the end of the row
+            // (or under the level when the row has no room for them).
+            val artScale = CompactArt.toPx() / artP.height
+            val smallStatus = if (connected) 1f else 0.7f
+            val textX = side + (artP.width * artScale).roundToInt() + m
+            val textW = maxOf(nameP.width, ((statusP?.width ?: 0) * smallStatus).roundToInt())
+            val chipsInline = chipsP == null || textX + textW + m + chipsP.width <= width - side
+            val textH = nameP.height + (statusH * smallStatus).roundToInt() +
+                if (chipsP != null && !chipsInline) s + chipsH else 0
+            val rowH = maxOf(CompactArt.roundToPx(), textH)
+            val compactH = s + rowH + m
+            val rowTop = s
+            val textTop = rowTop + (rowH - textH) / 2
+            val compactNameY = textTop
+            val compactStatusY = compactNameY + nameP.height
+            val compactChipsY = if (chipsInline) rowTop + (rowH - chipsH) / 2
+                else compactStatusY + (statusH * smallStatus).roundToInt() + s
+
+            val range = (fullH - compactH).coerceAtLeast(0).toFloat()
+            collapse.range = range
+            if (collapse.offset > range) collapse.offset = range
+            val f = collapse.fraction(range)
+            fun mix(a: Int, b: Int) = lerp(a, b, f)
+            fun centred(w: Int) = (width - w) / 2
+
+            layout(width, mix(fullH, compactH)) {
+                val sArt = 1f + (artScale - 1f) * f
+                artP.placeWithLayer(
+                    mix(centred(artP.width), side),
+                    mix(fullArtY, rowTop + (rowH - CompactArt.roundToPx()) / 2),
+                ) { scaleX = sArt; scaleY = sArt; transformOrigin = TransformOrigin(0f, 0f) }
+                nameP.place(mix(centred(nameP.width), textX), mix(fullNameY, compactNameY))
+                statusP?.let {
+                    val sStatus = 1f + (smallStatus - 1f) * f
+                    it.placeWithLayer(mix(centred(it.width), textX), mix(fullStatusY, compactStatusY)) {
+                        scaleX = sStatus; scaleY = sStatus; transformOrigin = TransformOrigin(0f, 0f)
                     }
                 }
-            } else {
-                Text(
-                    subtitleFor(state) ?: "Not connected",
-                    style = MaterialTheme.typography.headlineSmallEmphasized,
+                chipsP?.place(
+                    mix(centred(chipsP.width), if (chipsInline) width - side - chipsP.width else textX),
+                    mix(fullChipsY, compactChipsY),
                 )
             }
         }
     }
 }
+
+private enum class HeroPart { Art, Name, Status, Chips }
+
+/** Height of the render in the folded hero. */
+private val CompactArt = 56.dp
 
 /**
  * Codec marks recut as alpha masks so they take the theme colour: Sound Connect's a_mdr_codec_*, except LDAC,
@@ -366,10 +464,12 @@ internal fun NoiseControlCard(mode: AmbientMode, level: Int, voiceFocus: Boolean
             horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
         ) {
             modeOptions.forEachIndexed { i, o ->
+                val press = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                 ToggleButton(
                     checked = mode == o.mode,
                     onCheckedChange = { vm.setAmbientMode(o.mode) },
-                    modifier = Modifier.weight(1f).height(72.dp).semantics { role = Role.RadioButton },
+                    interactionSource = press,
+                    modifier = Modifier.weight(1f).height(72.dp).squishy(press, 0.92f).semantics { role = Role.RadioButton },
                     colors = ToggleButtonDefaults.toggleButtonColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -382,7 +482,7 @@ internal fun NoiseControlCard(mode: AmbientMode, level: Int, voiceFocus: Boolean
                     },
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(painterResource(o.icon), null, Modifier.size(28.dp))
+                        Icon(painterResource(o.icon), null, Modifier.size(28.dp).hopOnSelect(mode == o.mode))
                         Spacer(Modifier.height(2.dp))
                         Text(
                             o.label, maxLines = 1, softWrap = false,

@@ -32,7 +32,7 @@ on three clean tabs — **Listen**, **Sound** and **Device** — in your wallpap
 
 ### 🎧 Listen
 - **Noise cancelling / Ambient / Off** with ambient level and voice focus, DSEE Extreme, Speak-to-Chat
-- **Scenes** — Commute, Office, Walk, Sleep or your own: noise mode, EQ, Speak-to-Chat and volume in one tap
+- **Scenes** — Commute, Office, Walk, Sleep or your own: noise mode, EQ, Speak-to-Chat and volume in one tap; tap it again to go back to how things were
 - **Now playing** with artwork, seek bar and the headphones' own volume; shows which device is streaming
 - **Sleep timer** — fades out, pauses, then turns the headphones off (or at the end of the track)
 

@@ -201,10 +201,28 @@ Enable with `su -c "/data/adb/lspd/cli scope set com.occaecat.hush com.heytap.my
   the second as the setting made Hush show "off". Type 2 is now ignored (`ym0/c`, `ym0/d`). `f5 05 …` is the status
   (enabled, talking-now).
 
+## Motion (`ui/Motion.kt`)
+
+On top of `MotionScheme.expressive()`, using two springs (under-damped for presses and hops, stiffer for exits):
+
+- `squishy()` — scale down while pressed, overshoot on release (noise-control buttons, list rows, scene chips, EQ presets).
+- `hopOnSelect()` — an icon squashes and springs past full size when it becomes selected (nav bar, modes, scenes).
+- `morphingBlob()` — the Listen hero's backdrop: a `MaterialShapes` polygon that `Morph`s to the noise mode's shape
+  (ANC `Cookie12Sided` / primaryContainer, Ambient `Flower` / tertiaryContainer, Off `Circle` / secondaryContainer)
+  with an overshooting spring, a kick, a slow spin and a breath.
+- `predictiveBack()` — `PredictiveBackHandler` with the M3 predictive-back transform (scale to 90%, shift
+  width/20 − 8dp towards the swipe edge, rounded corners). Cancel bounces back; commit either flings the page out
+  and closes it (full-screen pages, tour) or steps back and springs the page in place (tab → Listen, Find Your
+  Equalizer rounds, AutoEq preview → search). Compose dialogs have their own back dispatcher, so the handler sits
+  inside the dialog content.
+
 ## Everyday features (`features/`)
 
 - **Scenes** (Listen → Scenes): one tap applies noise control + EQ (any `SoundAction`), Speak-to-Chat and the headset
   volume; long press edits, "+" adds. Stored in `sound.json` (`scenes`), defaults Commute / Office / Walk / Sleep.
+  Tapping the active scene turns it off and restores what the headset was doing before the first scene went on
+  (noise control, EQ preset, Speak-to-Chat, volume). Library curves are written into Custom, so Custom's old bands
+  come back only if Custom was the active preset. A manual mode change clears the scene and the saved state.
 - **Sleep timer** (moon on the player): 15 min…2 h or end of track; fades the headset volume over 45 s, pauses, then
   powers the headset off (or restores the volume). `features/SleepTimer.kt`.
 - **Touch and hold** now also does in-app actions: switch noise mode, next scene, 30-min sleep timer, recognize song

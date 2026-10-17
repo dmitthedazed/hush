@@ -206,9 +206,12 @@ fun SwitchRow(
     enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit,
 ) {
+    val press = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     SegmentedListItem(
         checked = checked,
         onCheckedChange = onCheckedChange,
+        interactionSource = press,
+        modifier = Modifier.squishy(press, 0.97f),
         enabled = enabled,
         shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
         colors = segmentColors(),
@@ -239,8 +242,11 @@ fun ValueRow(
     trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
 ) {
+    val press = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     SegmentedListItem(
         onClick = onClick,
+        interactionSource = press,
+        modifier = Modifier.squishy(press, 0.97f),
         enabled = enabled,
         shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
         colors = segmentColors(),
