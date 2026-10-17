@@ -2,7 +2,6 @@
 
 package com.occaecat.hush.ui
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -87,6 +86,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.animation.core.animate
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.occaecat.hush.HeadphonesState
@@ -109,7 +117,6 @@ fun HushShell(state: HeadphonesState, vm: HeadphonesController) {
     val link by DeepLink.target.collectAsState()
     LaunchedEffect(link) { if (link != null) tab = Tab.DEVICE }
     TourHost(state)
-    BackHandler(enabled = tab != Tab.LISTEN) { tab = Tab.LISTEN }
     val layout = LocalLayout.current
 
     val content: @Composable (Modifier) -> Unit = { modifier ->
@@ -120,7 +127,8 @@ fun HushShell(state: HeadphonesState, vm: HeadphonesController) {
                 (fadeIn(motion.defaultEffectsSpec()) + scaleIn(motion.defaultSpatialSpec(), initialScale = 0.96f))
                     .togetherWith(fadeOut(motion.fastEffectsSpec()))
             },
-            modifier = modifier,
+            // Back from Sound or Device peeks at Listen: the page shrinks with the gesture, then Listen springs in.
+            modifier = modifier.predictiveBack(enabled = tab != Tab.LISTEN, exits = false) { tab = Tab.LISTEN },
             label = "tab",
         ) { t ->
             when (t) {
@@ -153,7 +161,7 @@ fun HushShell(state: HeadphonesState, vm: HeadphonesController) {
                     NavigationRailItem(
                         selected = tab == t,
                         onClick = { tab = t },
-                        icon = { Icon(if (tab == t) t.selectedIcon else t.icon, null) },
+                        icon = { Icon(if (tab == t) t.selectedIcon else t.icon, null, Modifier.hopOnSelect(tab == t)) },
                         label = { Text(t.label) },
                     )
                 }
@@ -185,7 +193,7 @@ private fun BottomBarLayout(tab: Tab, onTab: (Tab) -> Unit, content: @Composable
                     NavigationBarItem(
                         selected = tab == t,
                         onClick = { onTab(t) },
-                        icon = { Icon(if (tab == t) t.selectedIcon else t.icon, null) },
+                        icon = { Icon(if (tab == t) t.selectedIcon else t.icon, null, Modifier.hopOnSelect(tab == t)) },
                         label = { Text(t.label) },
                     )
                 }
@@ -210,8 +218,11 @@ fun TabScaffold(
     actions: @Composable RowScope.() -> Unit = {},
     /** When set, replaces the app bar: drawn edge to edge from the very top of the window, behind the status bar. */
     hero: (@Composable () -> Unit)? = null,
+    /** Like [hero], but pinned to the top: scrolling folds it into a compact bar instead of carrying it away. */
+    pinnedHero: (@Composable (HeroCollapse) -> Unit)? = null,
     content: LazyStaggeredGridScope.() -> Unit,
 ) {
+    val heroless = hero == null && pinnedHero == null
     val layout = LocalLayout.current
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val hinge = layout.bookHinge
@@ -224,10 +235,10 @@ fun TabScaffold(
     Scaffold(
         // Without an app bar the collapse behaviour has no height limit and would swallow every scroll.
         modifier = Modifier.widthIn(max = maxWidth)
-            .then(if (hero == null) Modifier.nestedScroll(scroll.nestedScrollConnection) else Modifier),
+            .then(if (heroless) Modifier.nestedScroll(scroll.nestedScrollConnection) else Modifier),
         contentWindowInsets = WindowInsets(0),
         topBar = {
-            if (hero != null) {
+            if (!heroless) {
                 // No app bar: the hero carries the title.
             } else if (layout.compactHeight) {
                 // Short windows can't spare the large bar's height.
@@ -269,24 +280,54 @@ fun TabScaffold(
             HingeCells(hinge.first - gridLeft - pad, hinge.last - gridLeft - pad)
         } else StaggeredGridCells.Fixed(layout.columns)
         val gridState = rememberLazyStaggeredGridState()
-        LazyVerticalStaggeredGrid(
-            state = gridState,
-            columns = cells,
-            contentPadding = PaddingValues(
-                start = Space.m, end = Space.m, top = if (hero != null) 0.dp else pad.calculateTopPadding() + Space.s,
-                bottom = Space.xl + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
-            ),
-            horizontalArrangement = Arrangement.spacedBy(gap),
-            verticalItemSpacing = Space.m,
-            modifier = Modifier.fillMaxSize().onGloballyPositioned { gridLeft = it.positionInWindow().x.toInt() },
-        ) {
-            if (hero != null) {
-                item(span = StaggeredGridItemSpan.FullLine, key = "hero") {
-                    // Cancel the grid's side padding so the hero runs from edge to edge.
-                    Box(Modifier.bleed(Space.m)) { hero() }
+        val grid = @Composable {
+            LazyVerticalStaggeredGrid(
+                state = gridState,
+                columns = cells,
+                contentPadding = PaddingValues(
+                    start = Space.m, end = Space.m, top = when {
+                        pinnedHero != null -> HeroOverlap + Space.m
+                        hero != null -> 0.dp
+                        else -> pad.calculateTopPadding() + Space.s
+                    },
+                    bottom = Space.xl + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+                ),
+                horizontalArrangement = Arrangement.spacedBy(gap),
+                verticalItemSpacing = Space.m,
+                modifier = Modifier.fillMaxSize().onGloballyPositioned { gridLeft = it.positionInWindow().x.toInt() },
+            ) {
+                if (hero != null) {
+                    item(span = StaggeredGridItemSpan.FullLine, key = "hero") {
+                        // Cancel the grid's side padding so the hero runs from edge to edge.
+                        Box(Modifier.bleed(Space.m)) { hero() }
+                    }
+                }
+                content()
+            }
+        }
+        if (pinnedHero != null) {
+            val collapse = remember { HeroCollapse() }
+            val settle = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+            val connection = remember(collapse, settle) { collapse.connection(settle) }
+            val overlap = with(density) { HeroOverlap.roundToPx() }
+            Layout(
+                content = {
+                    grid()
+                    Box(Modifier.zIndex(1f)) { pinnedHero(collapse) }
+                },
+                modifier = Modifier.fillMaxSize().nestedScroll(connection),
+            ) { (gridM, heroM), c ->
+                val heroP = heroM.measure(c.copy(minHeight = 0))
+                // The cards start under the hero's rounded bottom so they show through its corners.
+                val top = (heroP.height - overlap).coerceIn(0, c.maxHeight)
+                val gridP = gridM.measure(c.copy(minHeight = 0, maxHeight = c.maxHeight - top))
+                layout(c.maxWidth, c.maxHeight) {
+                    gridP.place(0, top)
+                    heroP.place(0, 0)
                 }
             }
-            content()
+        } else {
+            grid()
         }
         if (hero != null) {
             // Once the hero scrolls away, keep the status bar readable over the cards passing under it.
@@ -299,6 +340,45 @@ fun TabScaffold(
         }
     }
     }
+}
+
+/** How far a pinned hero sits under the grid's first row: its bottom corner radius. */
+private val HeroOverlap = 28.dp
+
+/**
+ * How far a pinned hero has folded towards its compact bar. The hero reports [range] (the pixels between its
+ * full and compact heights) as it measures; scrolling moves [offset] within it before the grid itself scrolls.
+ */
+@Stable
+class HeroCollapse {
+    var range by mutableFloatStateOf(0f)
+    var offset by mutableFloatStateOf(0f)
+
+    /** 0 = full, 1 = compact. */
+    fun fraction(range: Float = this.range): Float = if (range > 0f) (offset / range).coerceIn(0f, 1f) else 0f
+
+    private fun consume(dy: Float): Float {
+        val old = offset
+        offset = (old - dy).coerceIn(0f, range)
+        return old - offset
+    }
+
+    internal fun connection(settle: androidx.compose.animation.core.FiniteAnimationSpec<Float>) =
+        object : NestedScrollConnection {
+            // Scrolling up folds the hero first; scrolling down unfolds it only once the grid is back at its top.
+            override fun onPreScroll(available: Offset, source: NestedScrollSource) =
+                if (available.y < 0f) Offset(0f, consume(available.y)) else Offset.Zero
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource) =
+                if (available.y > 0f) Offset(0f, consume(available.y)) else Offset.Zero
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                // Never leave it half folded: settle on the nearer end.
+                val f = fraction()
+                if (f > 0f && f < 1f) animate(offset, if (f < 0.5f) 0f else range, animationSpec = settle) { v, _ -> offset = v }
+                return Velocity.Zero
+            }
+        }
 }
 
 /** An item that spans every column (banners, placeholders). */

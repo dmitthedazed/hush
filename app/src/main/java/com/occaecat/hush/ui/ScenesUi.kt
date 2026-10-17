@@ -101,18 +101,30 @@ fun ScenesRow(state: HeadphonesState, modifier: Modifier) {
         ) {
             config.scenes.forEach { scene ->
                 val on = active == scene.id
+                // The active scene rounds out into a pill and takes the primary colour; presses squish it.
+                val motion = MaterialTheme.motionScheme
+                val corner by androidx.compose.animation.core.animateDpAsState(if (on) 28.dp else 16.dp, motion.fastSpatialSpec(), label = "corner")
+                val fill by androidx.compose.animation.animateColorAsState(
+                    if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh, motion.defaultEffectsSpec(), label = "fill",
+                )
+                val ink by androidx.compose.animation.animateColorAsState(
+                    if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface, motion.defaultEffectsSpec(), label = "ink",
+                )
+                val shape = androidx.compose.foundation.shape.RoundedCornerShape(corner)
+                val press = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                 Surface(
-                    shape = MaterialTheme.shapes.large,
-                    color = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
-                    contentColor = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.clip(MaterialTheme.shapes.large).combinedClickable(
-                        onClickLabel = "Apply ${scene.name}", onLongClickLabel = "Edit ${scene.name}",
+                    shape = shape,
+                    color = fill,
+                    contentColor = ink,
+                    modifier = Modifier.squishy(press, 0.9f).clip(shape).combinedClickable(
+                        interactionSource = press, indication = androidx.compose.material3.ripple(),
+                        onClickLabel = if (on) "Turn off ${scene.name}" else "Apply ${scene.name}", onLongClickLabel = "Edit ${scene.name}",
                         onLongClick = { editing = scene },
-                        onClick = { Scenes.apply(context, scene) },
+                        onClick = { Scenes.toggle(context, scene) },
                     ),
                 ) {
                     Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(SceneIcons[scene.icon] ?: Icons.Outlined.Star, null, Modifier.size(20.dp))
+                        Icon(SceneIcons[scene.icon] ?: Icons.Outlined.Star, null, Modifier.size(20.dp).hopOnSelect(on))
                         Spacer(Modifier.width(Space.s))
                         Text(scene.name, style = MaterialTheme.typography.labelLarge)
                     }

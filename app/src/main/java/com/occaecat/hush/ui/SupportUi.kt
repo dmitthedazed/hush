@@ -5,7 +5,6 @@ package com.occaecat.hush.ui
 import android.content.Context
 import android.text.format.DateUtils
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -253,9 +252,8 @@ fun TourPage(state: HeadphonesState, onClose: () -> Unit) {
     val topics by produceState<List<InstructionGuide.Topic>?>(null, model) {
         value = runCatching { InstructionGuide.load(model, state.guideCategories, state.firmware) }.getOrNull().orEmpty()
     }
-    BackHandler(onBack = onClose)
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+        Surface(Modifier.fillMaxSize().predictiveBack(onBack = onClose), color = MaterialTheme.colorScheme.surface) {
             val t = topics
             if (t == null) {
                 Box(contentAlignment = Alignment.Center) { LoadingIndicator(Modifier.size(56.dp)) }

@@ -11,8 +11,8 @@ android {
         applicationId = "com.occaecat.hush"
         minSdk = 31
         targetSdk = 36
-        versionCode = 16
-        versionName = "0.16.0"
+        versionCode = 17
+        versionName = "0.17.0"
     }
 
     compileOptions {

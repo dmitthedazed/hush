@@ -2,7 +2,6 @@
 
 package com.occaecat.hush.ui
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -127,7 +126,6 @@ fun AutoEqSheet(
         }
     }
 
-    BackHandler(enabled = picked != null) { picked = null }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -141,7 +139,7 @@ fun AutoEqSheet(
                 (slideInHorizontally(motion.defaultSpatialSpec()) { if (forward) it / 4 else -it / 4 } + fadeIn(motion.defaultEffectsSpec()))
                     .togetherWith(fadeOut(motion.fastEffectsSpec()))
             },
-            modifier = Modifier.navigationBarsPadding(),
+            modifier = Modifier.navigationBarsPadding().predictiveBack(enabled = picked != null, exits = false) { picked = null },
             label = "autoeq",
         ) { entry ->
             if (entry == null) {
