@@ -48,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.annotation.DrawableRes
@@ -132,6 +133,13 @@ fun ShapeBadge(
         ) {}
         Icon(icon, null, tint = content, modifier = Modifier.size(size * 0.46f))
     }
+}
+
+/** Widens a grid item by [side] on both ends, past the grid's content padding (edge-to-edge rows). */
+fun Modifier.bleed(side: Dp): Modifier = layout { m, c ->
+    val extra = (side * 2).roundToPx()
+    val p = m.measure(c.copy(minWidth = c.maxWidth + extra, maxWidth = c.maxWidth + extra))
+    layout(c.maxWidth, p.height) { p.place(-extra / 2, 0) }
 }
 
 @Composable

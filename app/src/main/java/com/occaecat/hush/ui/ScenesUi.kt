@@ -93,8 +93,12 @@ fun ScenesRow(state: HeadphonesState, modifier: Modifier) {
         if (s.action.mode != null && mode != null && s.action.mode != mode) Scenes.clear()
     }
     Column(modifier) {
-        SectionHeader("Scenes", top = Space.m)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+        SectionHeader("Scenes", top = Space.s)
+        // Scrolls under the grid's side padding to the screen edge; the first and last chips still line up with the cards.
+        Row(
+            Modifier.bleed(Space.m).horizontalScroll(rememberScrollState()).padding(horizontal = Space.m),
+            horizontalArrangement = Arrangement.spacedBy(Space.s),
+        ) {
             config.scenes.forEach { scene ->
                 val on = active == scene.id
                 Surface(

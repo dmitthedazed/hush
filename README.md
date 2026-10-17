@@ -49,7 +49,8 @@ on three clean tabs — **Listen**, **Sound** and **Device** — in your wallpap
   sleep timer, recognise a song, record a voice note, toggle the flashlight or fire a Tasker intent
 - **Insights** — battery history and an honest time-left estimate, weekly **sound dose** (WHO 80 dB × 40 h),
   and **where you last had them**
-- **Firmware check** against Sony's update server, weekly in the background
+- **Updates** — one place for Hush itself (from GitHub releases, installed in-app) and the headphones' firmware
+  (checked against Sony's update server); both are checked weekly in the background
 - **How to use** and a first-run **tour** from Sony's own tutorial, **Help** with Sony's support articles
 - **Device details** — serial, region, service id, update method, BLE power, protocol (identifiers hidden by default)
 - **Backup & restore** everything to one JSON file
@@ -72,7 +73,8 @@ Home-screen widgets (Glance), a Quick Settings tile, a live notification with mo
 2. Pair the headphones in Android's Bluetooth settings, open Hush and pick them.
 3. Close Sony Sound Connect — the headphones give their control channel to one app at a time.
 
-Builds are signed with a development key, so Android shows an "unknown developer" prompt; updates install in place.
+Builds are signed with a development key, so Android shows an "unknown developer" prompt. After that Hush updates
+itself: Device → About → Updates downloads the new release from GitHub and installs it in place.
 
 ## Build
 

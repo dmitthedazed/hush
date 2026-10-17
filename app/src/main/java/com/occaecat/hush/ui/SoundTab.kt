@@ -113,7 +113,7 @@ fun SoundTab(state: HeadphonesState, vm: HeadphonesController) {
             // Find Your Equalizer uses Sound Connect's tables for the standard six bands only.
             val fye = eq.bands.size == Labels.sixBands.size
             Column(ItemWidth) {
-                SectionHeader("Personalize")
+                SectionHeader("Personalize", top = Space.s)
                 SegmentedGroup {
                     val rows = listOfNotNull("fye".takeIf { fye }, "hearing".takeIf { fye }, "autoeq", "library")
                     rows.forEachIndexed { i, r ->
@@ -147,7 +147,7 @@ fun SoundTab(state: HeadphonesState, vm: HeadphonesController) {
         item {
             val status by SoundAutomation.status.collectAsState()
             Column(ItemWidth) {
-                SectionHeader("Automation")
+                SectionHeader("Automation", top = Space.s)
                 SegmentedGroup {
                     ValueRow(
                         0, 2, Icons.AutoMirrored.Outlined.DirectionsWalk, "Adaptive Sound Control",
@@ -172,7 +172,7 @@ fun SoundTab(state: HeadphonesState, vm: HeadphonesController) {
         )
         if (rows.isNotEmpty()) item {
             Column(ItemWidth) {
-                SectionHeader("Sound quality")
+                SectionHeader("Sound quality", top = Space.s)
                 SegmentedGroup {
                     rows.forEachIndexed { i, r ->
                         when (r) {
@@ -272,7 +272,7 @@ private fun EqualizerHero(eq: EqState, presets: List<Pair<Int, String>>, vm: Hea
         }
         if (eq.bands.isNotEmpty()) {
             Spacer(Modifier.height(Space.l))
-            Row(Modifier.fillMaxWidth().padding(horizontal = Space.s)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = Space.m)) {
                 eq.bands.forEachIndexed { i, raw ->
                     val label = if (eq.bands.size == Labels.sixBands.size) Labels.sixBands[i] else "${i + 1}"
                     EqBand(label, raw, Modifier.weight(1f)) { vm.setEqBand(i, it); onManualEdit() }

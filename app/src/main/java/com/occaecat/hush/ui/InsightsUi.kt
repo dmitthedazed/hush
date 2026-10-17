@@ -81,7 +81,7 @@ fun InsightsSection(state: HeadphonesState, modifier: Modifier, open: (String) -
     val dose = Insights.weeklyDose(data.days)
     val seen = data.lastSeen
     Column(modifier) {
-        SectionHeader("Insights")
+        SectionHeader("Insights", top = Space.s)
         SegmentedGroup {
             ValueRow(0, 3, Icons.Outlined.BatteryChargingFull, "Battery",
                 when {
