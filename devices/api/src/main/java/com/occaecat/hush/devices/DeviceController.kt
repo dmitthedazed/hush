@@ -66,9 +66,9 @@ interface DeviceController {
     /** Device-only cards on Device, between the device card and About (buttons, authenticity, remote…). */
     fun deviceSections(scope: LazyStaggeredGridScope) {}
 
-    /** Actions under the device card (switch, turn off, forget). */
+    /** Buttons in the device card's action row, before the shared "Remove" (connect, turn off). */
     @Composable
-    fun CardActions() {}
+    fun androidx.compose.foundation.layout.RowScope.CardActions() {}
 
     /** More rows in the About group (help, backup, the maker's documentation). */
     val aboutRows: List<AboutRow> get() = emptyList()

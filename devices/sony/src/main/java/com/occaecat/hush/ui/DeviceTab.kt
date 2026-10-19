@@ -80,6 +80,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.LinkOff
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -122,30 +125,22 @@ internal fun SonyDeviceOverlays(state: HeadphonesState, ui: SonyDeviceUi) = with
     }
 }
 
-/** Under the shared device card: switch to another headset, turn this one off, forget it. */
+/** In the shared device card's action row: connect or disconnect, and turn the headset off. */
 @Composable
-internal fun SonyCardActions(state: HeadphonesState, vm: HeadphonesController) {
-    var confirm by remember { mutableStateOf<String?>(null) }
+internal fun RowScope.SonyCardActions(state: HeadphonesState, vm: HeadphonesController) {
+    var confirm by remember { mutableStateOf(false) }
     val name = state.modelName ?: state.displayName
-    Spacer(Modifier.height(Space.m))
-    Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
-        val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)
-        FilledTonalButton(onClick = vm::disconnect, Modifier.weight(1f), contentPadding = pad) {
-            Icon(Icons.Outlined.SwapHoriz, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Switch", maxLines = 1)
-        }
-        if (state.phase == Phase.CONNECTED) FilledTonalButton(onClick = { confirm = "off" }, Modifier.weight(1f), contentPadding = pad) {
-            Icon(Icons.Outlined.PowerSettingsNew, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Turn off", maxLines = 1)
-        }
-        OutlinedButton(onClick = { confirm = "forget" }, Modifier.weight(1f), contentPadding = pad) {
-            Icon(Icons.Outlined.DeleteOutline, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Forget", maxLines = 1)
-        }
+    val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)
+    val live = state.phase == Phase.CONNECTED || state.phase == Phase.CONNECTING || state.phase == Phase.RECONNECTING
+    FilledTonalButton(onClick = { if (live) vm.disconnect() else state.address?.let(vm::connect) }, Modifier.weight(1f), contentPadding = pad) {
+        Icon(if (live) Icons.Outlined.LinkOff else Icons.Outlined.Link, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp))
+        Text(if (live) "Disconnect" else "Connect", maxLines = 1)
     }
-    when (confirm) {
-        "off" -> ConfirmDialog("Turn on the headphones with their power button to use them again.",
-            onConfirm = { vm.powerOff() }, onDismiss = { confirm = null }, title = "Turn off $name?", confirm = "Turn off")
-        "forget" -> ConfirmDialog("Hush stops connecting to $name. They stay paired with the phone.",
-            onConfirm = vm::forget, onDismiss = { confirm = null }, title = "Forget $name?", confirm = "Forget")
+    if (state.phase == Phase.CONNECTED) FilledTonalButton(onClick = { confirm = true }, Modifier.weight(1f), contentPadding = pad) {
+        Icon(Icons.Outlined.PowerSettingsNew, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Turn off", maxLines = 1)
     }
+    if (confirm) ConfirmDialog("Turn on the headphones with their power button to use them again.",
+        onConfirm = { vm.powerOff() }, onDismiss = { confirm = false }, title = "Turn off $name?", confirm = "Turn off")
 }
 
 /**

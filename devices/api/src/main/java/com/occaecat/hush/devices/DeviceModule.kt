@@ -24,10 +24,31 @@ interface DeviceModule {
     /** Once, from `Application.onCreate`: start watching for devices, restore settings. */
     fun init(context: Context) {}
 
-    /** The devices this module can show right now, connected or not (e.g. a remembered headset). */
+    /**
+     * Live devices: what this module is talking to or holding right now ([Device.active] = connected). The shell
+     * lists registered devices ([DeviceRegistry]) and takes "active" from here.
+     */
     val devices: StateFlow<List<Device>>
 
+    /** Models that can be added by hand, brand → model. */
+    val models: List<Model> get() = emptyList()
+
+    /** Units this module can see right now (paired headsets, plugged-in accessories), registered or not. */
+    val candidates: StateFlow<List<Candidate>>
+
+    /** Look again for [candidates] (the add screen opened, the app came back). */
+    fun scan(context: Context) {}
+
+    /** What an older Hush remembered before the registry, registered once on upgrade. */
+    fun remembered(context: Context): List<Candidate> = emptyList()
+
     fun controller(device: Device): DeviceController
+
+    /** The user opened [device]: connect to it if it isn't the one in use. */
+    fun onOpen(device: Device) {}
+
+    /** The user removed [device] from Hush: forget its connection settings. */
+    fun onRemove(device: Device) {}
 
     /** An intent that reached the app's activity (deep links, notification extras). */
     fun onIntent(context: Context, intent: Intent) {}
@@ -42,6 +63,9 @@ data class Device(
     val transport: Transport,
     /** Connected and playing through it, or ready to: active devices win over remembered ones. */
     val active: Boolean,
+    val modelId: String? = null,
+    /** Bluetooth address; null for devices identified by model (wired EarPods). */
+    val address: String? = null,
 )
 
 enum class Transport { BLUETOOTH, USB }
@@ -51,6 +75,9 @@ interface DeviceHost {
     val current: Device?
     val all: List<Device>
     fun open(device: Device)
+    /** The add-device screen. */
+    fun add()
+    fun remove(device: Device)
 }
 
 val LocalDeviceHost = compositionLocalOf<DeviceHost?> { null }

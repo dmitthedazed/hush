@@ -60,9 +60,25 @@ private fun Shell() {
         val version = context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
         com.occaecat.hush.widget.HushWidgets.publishPreviews(context, version)
     }
-    val lists = DeviceModules.all.map { it.devices.collectAsState() }
-    val devices = lists.flatMap { it.value }
+    val devices by DeviceModules.devices.collectAsState()
+    val found by DeviceModules.found.collectAsState()
+    val dismissed by com.occaecat.hush.devices.DeviceRegistry.dismissed.collectAsState()
     var picked by rememberSaveable { mutableStateOf<String?>(null) }
+    var adding by rememberSaveable { mutableStateOf(false) }
+    fun add(c: com.occaecat.hush.devices.Candidate) {
+        com.occaecat.hush.devices.DeviceRegistry.add(c)
+        picked = c.key
+        adding = false
+    }
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        DeviceModules.scan(context)
+        onPauseOrDispose {}
+    }
+    // Nothing registered: the add screen is the app.
+    if (devices.isEmpty()) {
+        com.occaecat.hush.ui.AddDeviceScreen(onClose = null, onAdd = ::add)
+        return
+    }
     // A device that becomes active (EarPods plugged in, headset connected) takes the screen, like the audio route does.
     var seenActive by remember { mutableStateOf(emptySet<String>()) }
     LaunchedEffect(devices) {
@@ -71,10 +87,17 @@ private fun Shell() {
         seenActive = active
     }
     val current = devices.firstOrNull { it.key == picked } ?: DeviceModules.pick(devices) ?: return
+    // Opening a device connects to it when it isn't the one in use (one Sony session at a time).
+    LaunchedEffect(current.key) { DeviceModules.module(current.moduleId).onOpen(current) }
     val host = object : DeviceHost {
         override val current: Device = current
         override val all: List<Device> = devices
         override fun open(device: Device) { picked = device.key }
+        override fun add() { adding = true }
+        override fun remove(device: Device) {
+            DeviceModules.remove(device)
+            if (picked == device.key) picked = null
+        }
     }
     CompositionLocalProvider(
         LocalDeviceHost provides host,
@@ -82,5 +105,10 @@ private fun Shell() {
     ) {
         val controller = remember(current.key) { DeviceModules.controller(current) }
         key(current.key) { com.occaecat.hush.ui.DeviceUi(controller) }
+    }
+    if (adding) com.occaecat.hush.ui.AddDeviceScreen(onClose = { adding = false }, onAdd = ::add)
+    // Auto-discovery: a unit the modules found that isn't registered and wasn't waved off gets one prompt.
+    else found.firstOrNull { it.key !in dismissed }?.let { c ->
+        com.occaecat.hush.ui.FoundDevicePrompt(c, onAdd = { add(c) }, onDismiss = { com.occaecat.hush.devices.DeviceRegistry.dismiss(c.key) })
     }
 }
