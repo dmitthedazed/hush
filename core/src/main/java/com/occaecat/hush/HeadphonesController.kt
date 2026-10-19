@@ -186,7 +186,9 @@ class HeadphonesController private constructor(private val app: Application) {
         _state.update { s ->
             s.copy(paired = devices.map {
                 val name = it.alias ?: it.name ?: it.address
-                PairedDevice(name, it.address, name.startsWith("WH-") || name.startsWith("WF-") || name.contains("Sony", true))
+                // The alias can be renamed ("Dmytrii's WH-1000XM4"); the device's own name is the reliable one.
+                val sony = listOfNotNull(it.name, it.alias).any { n -> n.contains("WH-") || n.contains("WF-") || n.contains("Sony", true) }
+                PairedDevice(name, it.address, sony)
             }.sortedByDescending { it.looksSony })
         }
     }

@@ -18,7 +18,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.occaecat.hush.HeadphonesController
 import com.occaecat.hush.HushTileService
 import com.occaecat.hush.Phase
+import com.occaecat.hush.devices.Candidate
 import com.occaecat.hush.devices.Device
+import com.occaecat.hush.devices.Model
 import com.occaecat.hush.devices.DeviceModule
 import com.occaecat.hush.devices.Transport
 import com.occaecat.hush.ui.DeepLink
@@ -36,7 +38,10 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
-/** Sony headphones over MDR (WH-1000XM4). Always lists one entry: the paired headset, or a picker when none. */
+/**
+ * Sony headphones over MDR (WH-1000XM4). Finds paired Sony headsets as candidates; one session at a time, so
+ * opening a registered headset connects to it.
+ */
 object SonyModule : DeviceModule {
     override val id = "sony"
     override val brand = "Sony"
@@ -63,15 +68,70 @@ object SonyModule : DeviceModule {
         val controller = HeadphonesController.get(app)
         // The headset's buttons can start the sleep timer before the app is ever opened.
         if (com.occaecat.hush.features.SleepTimer.target == null) com.occaecat.hush.features.SleepTimer.target = sonySleepTarget(controller)
-        fun entries(s: com.occaecat.hush.HeadphonesState) = listOf(
+        fun entries(s: com.occaecat.hush.HeadphonesState) = listOfNotNull(s.address?.let { addr ->
             Device(
-                key = "$id:${s.address ?: "none"}", moduleId = id,
-                name = s.deviceName ?: s.paired.firstOrNull { it.address == s.address }?.name ?: s.modelName ?: "Sony headphones",
+                key = "$id:$addr", moduleId = id,
+                name = s.deviceName ?: s.paired.firstOrNull { it.address == addr }?.name ?: s.modelName ?: "Sony headphones",
                 transport = Transport.BLUETOOTH, active = s.phase == Phase.CONNECTED,
+                modelId = modelFor(s.deviceName.orEmpty()), address = addr,
             )
-        )
+        })
         _devices = controller.state.map(::entries).distinctUntilChanged()
             .stateIn(scope, SharingStarted.Eagerly, entries(controller.state.value))
+        _candidates = controller.state.map { s ->
+            s.paired.filter { it.looksSony }.map { Candidate(id, modelFor(it.name), it.name, Transport.BLUETOOTH, it.address) }
+        }.distinctUntilChanged().stateIn(scope, SharingStarted.Eagerly, emptyList())
+        scan(app)
+    }
+
+    private lateinit var _candidates: StateFlow<List<Candidate>>
+    override val candidates: StateFlow<List<Candidate>> get() = _candidates
+
+    override val models = listOf(
+        Model(
+            XM4, "WH-1000XM4", Transport.BLUETOOTH,
+            "Pair the headphones in the phone's Bluetooth settings first (hold the power button for 7 seconds to " +
+                "start pairing), then pick them below. Close Sound Connect: only one app can hold the control channel.",
+            permission = Manifest.permission.BLUETOOTH_CONNECT, image = R.drawable.xm4_front, note = "Fully supported",
+        ),
+        Model(
+            OTHER, "Other Sony headphones", Transport.BLUETOOTH,
+            "Hush speaks Sony's headphone protocol (MDR), so other WH- and WF- models may work. What shows up depends " +
+                "on what the headset reports. Pair it in Bluetooth settings, then pick it below.",
+            permission = Manifest.permission.BLUETOOTH_CONNECT, note = "Untested",
+        ),
+    )
+
+    private const val XM4 = "wh-1000xm4"
+    private const val OTHER = "sony-mdr"
+    private fun modelFor(name: String) = if (name.contains("WH-1000XM4", ignoreCase = true)) XM4 else OTHER
+
+    override fun scan(context: Context) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+            HeadphonesController.get(context).refreshPaired()
+        }
+    }
+
+    /** The headset an older Hush connected to. */
+    override fun remembered(context: Context): List<Candidate> {
+        val s = HeadphonesController.get(context).state.value
+        val addr = s.address ?: return emptyList()
+        val name = s.paired.firstOrNull { it.address == addr }?.name ?: s.deviceName ?: "WH-1000XM4"
+        return listOf(Candidate(id, modelFor(name), name, Transport.BLUETOOTH, addr))
+    }
+
+    override fun onOpen(device: Device) {
+        val vm = HeadphonesController.get(appContext)
+        val addr = device.address ?: return
+        val s = vm.state.value
+        if (s.address != addr || s.phase == Phase.IDLE || s.phase == Phase.FAILED) {
+            if (ContextCompat.checkSelfPermission(appContext, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) vm.pick(addr)
+        }
+    }
+
+    override fun onRemove(device: Device) {
+        val vm = HeadphonesController.get(appContext)
+        if (vm.state.value.address == device.address) vm.forget()
     }
 
     override fun onIntent(context: Context, intent: Intent) = DeepLink.from(intent)

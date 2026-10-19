@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -269,6 +270,13 @@ fun ProductHero(
                 )
             }
         }
+        // The app bar's extras (the device switcher) in the corner while the hero is open; the folded bar has no room.
+        val open = 1f - collapse.fraction() * 2f
+        if (open > 0f) Row(
+            Modifier.align(Alignment.TopEnd).padding(end = Space.s)
+                .graphicsLayer { alpha = open.coerceIn(0f, 1f) },
+            content = LocalAppBarExtras.current,
+        )
     }
 }
 

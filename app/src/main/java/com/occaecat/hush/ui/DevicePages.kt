@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoGraph
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.LibraryMusic
@@ -271,7 +272,25 @@ private fun DeviceCard(c: DeviceController, s: DeviceState, modifier: Modifier) 
                     ) { facts.forEach { Fact(it) } }
                 }
             }
-            Column { c.CardActions() }
+            val host = com.occaecat.hush.devices.LocalDeviceHost.current
+            var removing by androidx.compose.runtime.remember { mutableStateOf(false) }
+            Spacer(Modifier.height(Space.m))
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+                with(c) { CardActions() }
+                if (host?.current != null) androidx.compose.material3.OutlinedButton(
+                    onClick = { removing = true }, Modifier.weight(1f),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
+                ) {
+                    Icon(Icons.Outlined.DeleteOutline, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Remove", maxLines = 1)
+                }
+            }
+            val device = host?.current
+            if (removing && device != null) ConfirmDialog(
+                "${device.name} leaves the device switcher and Hush stops connecting to it. It stays paired with the phone; " +
+                    "add it again any time.",
+                onConfirm = { host.remove(device) }, onDismiss = { removing = false },
+                title = "Remove ${device.name}?", confirm = "Remove",
+            )
         }
     }
 }

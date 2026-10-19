@@ -115,11 +115,11 @@ import androidx.compose.ui.util.lerp
 /** Sony's cards on the shared Listen page: connection trouble and scenes. */
 internal fun LazyStaggeredGridScope.sonyListen(state: HeadphonesState, vm: HeadphonesController) {
     when (state.phase) {
-        Phase.FAILED -> state.elsewhere?.let { other -> wideItem { ElsewhereCard(other, vm::takeControl, ItemWidth) } } ?: wideItem {
+        Phase.FAILED, Phase.IDLE -> state.elsewhere?.takeIf { state.phase == Phase.FAILED }
+            ?.let { other -> wideItem { ElsewhereCard(other, vm::takeControl, ItemWidth) } } ?: wideItem {
             FailedHero(
                 state, ItemWidth,
                 onRetry = { state.address?.let(vm::connect) },
-                onChoose = vm::disconnect,
                 showImage = false,
             )
         }
@@ -165,7 +165,7 @@ private fun ConnectingHero(state: HeadphonesState, modifier: Modifier) {
 
 @Composable
 private fun FailedHero(
-    state: HeadphonesState, modifier: Modifier, onRetry: () -> Unit, onChoose: () -> Unit, showImage: Boolean = true,
+    state: HeadphonesState, modifier: Modifier, onRetry: () -> Unit, showImage: Boolean = true,
 ) {
     Card(
         modifier = modifier,
@@ -189,10 +189,7 @@ private fun FailedHero(
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(Space.l))
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
-                Button(onClick = onRetry) { Text("Retry") }
-                OutlinedButton(onClick = onChoose) { Text("Choose another") }
-            }
+            Button(onClick = onRetry) { Text(if (state.phase == Phase.IDLE) "Connect" else "Retry") }
         }
     }
 }

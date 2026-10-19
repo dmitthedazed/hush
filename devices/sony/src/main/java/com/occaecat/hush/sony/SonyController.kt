@@ -39,7 +39,6 @@ import com.occaecat.hush.mdr.Codec
 import com.occaecat.hush.mdr.EqState
 import com.occaecat.hush.sound.SoundStore
 import com.occaecat.hush.ui.DeepLink
-import com.occaecat.hush.ui.DevicePickerScreen
 import com.occaecat.hush.ui.DeviceTrack
 import com.occaecat.hush.ui.EqUi
 import com.occaecat.hush.ui.HeadsetAlertDialog
@@ -182,7 +181,7 @@ class SonyController(
     override fun deviceSections(scope: LazyStaggeredGridScope) = scope.sonyDevice(hs.value, vm, deviceUi)
 
     @Composable
-    override fun CardActions() {
+    override fun androidx.compose.foundation.layout.RowScope.CardActions() {
         val s by hs
         SonyCardActions(s, vm)
     }
@@ -338,7 +337,7 @@ class SonyEqualizer(
     }
 }
 
-/** Permission and headset choice before the shared UI; the headset's own prompts on top. */
+/** Bluetooth permission before the shared UI; the headset's own prompts on top. */
 @Composable
 private fun SonyGate(vm: HeadphonesController, content: @Composable () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -358,9 +357,8 @@ private fun SonyGate(vm: HeadphonesController, content: @Composable () -> Unit) 
     SonyStartup(vm)
     val state by vm.state.collectAsState()
     state.alert?.let { (type, actionType) -> HeadsetAlertDialog(type, actionType, vm::answerAlert) }
-    if (state.address == null || state.phase == Phase.IDLE) {
-        DevicePickerScreen(state = state, onRefresh = vm::refreshPaired, onPick = vm::pick)
-    } else content()
+    // Which headset is the shell's choice now (DeviceRegistry); a disconnected one shows the shared UI, not a picker.
+    content()
 }
 
 /** The headset's own volume, its playback control and power. */

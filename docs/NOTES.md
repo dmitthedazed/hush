@@ -360,6 +360,13 @@ under `devices/` that reports state and capabilities; the app draws the same pag
 - Way forward (from Gadgetbridge, Galaxy Buds Client and OpenFreebuds): a module per brand (protocol), a model as
   data (which capabilities, ranges, presets), refined at runtime by what the device reports (Sony's support-function
   list); add a capability to `DeviceControls.kt` when a second brand needs the same thing.
+- Devices are registered (`DeviceRegistry`, `files/devices.json`): the switcher lists every registered device,
+  connected or not, plus "Add device". Modules report live devices (`devices`, for "connected"), what they can see
+  (`candidates`: paired Sony headsets by name or alias, plugged-in EarPods), their `models` for adding by hand, and
+  hooks: `scan`, `onOpen` (Sony connects to the opened headset), `onRemove` (Sony forgets it), `remembered` (moved into
+  the registry once on upgrade). With nothing registered the add screen is the app. A found unit that isn't registered
+  gets one "New device found" prompt; "Not now" is remembered. Add screen: Found, then brand → model → how to get it
+  ready, its found units, and "Add" for models that need no unit (EarPods).
 - Still Sony-only (tied to its protocol): scenes, Find Your Equalizer and the hearing
   test (Sony's six-band tables), Adaptive Sound Control / app profiles, help, backup, the tile, notification,
   ColorOS card, Xposed.
