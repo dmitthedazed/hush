@@ -15,8 +15,8 @@ import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.updateAll
-import com.occaecat.hush.HeadphonesController
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 
 /**
  * Hush home screen widgets, smallest to largest. Each is responsive inside its range, and each gives the widget
@@ -27,9 +27,9 @@ abstract class HushWidget(sizes: Set<DpSize>, private val content: @Composable (
     override val previewSizeMode = SizeMode.Responsive(sizes)
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val controller = HeadphonesController.get(context)
+        val flow = widgetState(context)
         provideContent {
-            val state by controller.state.map(WidgetState::from).collectAsState(WidgetState.from(controller.state.value))
+            val state by flow.collectAsState(WidgetState.from(null, emptyList(), emptyList(), null))
             GlanceTheme { content(state) }
         }
     }
@@ -48,6 +48,21 @@ class BatteryWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceApp
 class StatusWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = StatusWidget() }
 class ControlsWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = ControlsWidget() }
 class DashboardWidgetReceiver : GlanceAppWidgetReceiver() { override val glanceAppWidget: GlanceAppWidget = DashboardWidget() }
+
+/** The current device's state for widgets, following device switches. */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+fun widgetState(context: Context): kotlinx.coroutines.flow.Flow<WidgetState> =
+    com.occaecat.hush.DeviceModules.current.flatMapLatest { device ->
+        if (device == null) return@flatMapLatest kotlinx.coroutines.flow.flowOf(WidgetState.from(null, emptyList(), emptyList(), null))
+        val c = com.occaecat.hush.DeviceModules.controller(device)
+        val render = c.renderBitmap(context)
+        val q = c.quick
+        kotlinx.coroutines.flow.combine(
+            c.state,
+            q?.modes ?: kotlinx.coroutines.flow.flowOf(emptyList()),
+            q?.toggles ?: kotlinx.coroutines.flow.flowOf(emptyList()),
+        ) { s, modes, toggles -> WidgetState.from(s, modes, toggles, render) }
+    }.distinctUntilChanged()
 
 object HushWidgets {
     private const val TAG = "HushWidgets"

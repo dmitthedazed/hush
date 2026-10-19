@@ -49,17 +49,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.occaecat.hush.HeadphonesState
 import com.occaecat.hush.update.AppUpdate
-import com.occaecat.hush.update.FirmwareCheck
 import kotlinx.coroutines.launch
-
-/** State of Sony's firmware check for the connected headset; null fields until the headset reported its ids. */
-class FirmwareUi {
-    var result by mutableStateOf<FirmwareCheck.Result?>(null)
-    var checking by mutableStateOf(false)
-    var failed by mutableStateOf(false)
-}
+import com.occaecat.hush.devices.Firmware
 
 /** State of the GitHub release check for Hush itself. */
 class AppUpdateUi(installed: String) {
@@ -67,31 +59,6 @@ class AppUpdateUi(installed: String) {
     var checked by mutableStateOf(false)
     var checking by mutableStateOf(false)
     var failed by mutableStateOf(false)
-}
-
-private fun HeadphonesState.fwInputs(): List<String>? {
-    val category = updateInfo[2] ?: return null
-    val service = updateInfo[3] ?: return null
-    val model = modelName ?: return null
-    val fw = firmware ?: return null
-    return listOf(category, service, model, fw)
-}
-
-/** Checks once per connection (Sony's file is cached 12 h); [FirmwareUi] drives the Updates row and page. */
-@Composable
-fun rememberFirmwareCheck(state: HeadphonesState): FirmwareUi {
-    val context = LocalContext.current
-    val ui = remember { FirmwareUi() }
-    val inputs = state.fwInputs()
-    LaunchedEffect(inputs) {
-        val (category, service, model, fw) = inputs ?: return@LaunchedEffect
-        ui.result = FirmwareCheck.cached(context, service)?.takeIf { it.current == fw }
-        ui.checking = true; ui.failed = false
-        runCatching { FirmwareCheck.check(context, category, service, model, fw, state.serial) }
-            .onSuccess { ui.result = it }.onFailure { ui.failed = ui.result == null }
-        ui.checking = false
-    }
-    return ui
 }
 
 /** Checks GitHub once per launch (cached 6 h). */
@@ -106,83 +73,50 @@ fun rememberAppUpdate(): AppUpdateUi {
     return ui
 }
 
-private suspend fun AppUpdateUi.check(context: android.content.Context, force: Boolean) {
+suspend fun AppUpdateUi.check(context: android.content.Context, force: Boolean) {
     checking = true; failed = false
     runCatching { AppUpdate.check(context, force) }
         .onSuccess { result = it; checked = true }.onFailure { failed = true }
     checking = false
 }
 
-private suspend fun FirmwareUi.check(context: android.content.Context, state: HeadphonesState) {
-    val (category, service, model, fw) = state.fwInputs() ?: return
-    checking = true; failed = false
-    runCatching { FirmwareCheck.check(context, category, service, model, fw, state.serial, force = true) }
-        .onSuccess { result = it }.onFailure { failed = true }
-    checking = false
-}
-
 /** One line for the Updates row: what can be updated, otherwise that everything is current. */
-fun updatesSummary(app: AppUpdateUi, fw: FirmwareUi): String {
+fun updatesSummary(app: AppUpdateUi, firmwarePending: String?, firmwareChecking: Boolean): String {
     val pending = listOfNotNull(
         app.result.release?.version?.takeIf { app.result.available }?.let { "Hush $it" },
-        fw.result?.takeIf { it.available }?.latest?.let { "firmware $it" },
+        firmwarePending,
     )
     return when {
         pending.isNotEmpty() -> pending.joinToString(" and ").replaceFirstChar { it.uppercase() } + " available"
-        app.checking || fw.checking -> "Checking…"
+        app.checking || firmwareChecking -> "Checking…"
         app.failed && !app.checked -> "Couldn't check"
         else -> "Up to date · Hush ${app.result.installed}"
     }
 }
 
-/** Hush from GitHub and the headphones' firmware from Sony, on one page. */
+/** Hush from GitHub and, when the device has updatable firmware, the device's own section, on one page. */
 @Composable
-fun UpdatesPage(state: HeadphonesState, app: AppUpdateUi, fw: FirmwareUi, onClose: () -> Unit) {
+fun UpdatesPage(app: AppUpdateUi, firmware: Firmware?, deviceTitle: String, onClose: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val fwChecking = firmware?.checking() == true
     FullScreenPage("Updates", onClose) {
         SectionHeader("Hush", top = Space.s)
         AppSection(app)
-        SectionHeader("Headphones")
-        FirmwareSection(state, fw)
+        if (firmware != null) {
+            SectionHeader(deviceTitle)
+            firmware.Section()
+        }
         Spacer(Modifier.height(Space.l))
         OutlinedButton(
-            enabled = !app.checking && !fw.checking,
+            enabled = !app.checking && !fwChecking,
             onClick = {
                 scope.launch { app.check(context, force = true) }
-                scope.launch { fw.check(context, state) }
+                if (firmware != null) scope.launch { firmware.recheck(context) }
             },
             modifier = Modifier.align(Alignment.CenterHorizontally),
-        ) { Text(if (app.checking || fw.checking) "Checking…" else "Check again") }
+        ) { Text(if (app.checking || fwChecking) "Checking…" else "Check again") }
         Spacer(Modifier.height(Space.l))
-    }
-}
-
-@Composable
-private fun StatusCard(
-    icon: ImageVector,
-    busy: Boolean,
-    highlight: Boolean,
-    title: String,
-    detail: String?,
-    content: @Composable () -> Unit = {},
-) {
-    Surface(
-        Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge,
-        color = if (highlight) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-    ) {
-        Column(Modifier.padding(Space.l)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (busy) LoadingIndicator(Modifier.size(48.dp))
-                else ShapeBadge(icon, size = 48.dp, polygon = MaterialShapes.Cookie9Sided)
-                Spacer(Modifier.width(Space.m))
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(title, style = MaterialTheme.typography.titleMediumEmphasized)
-                    detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-                }
-            }
-            content()
-        }
     }
 }
 
@@ -226,7 +160,8 @@ private fun AppSection(ui: AppUpdateUi) {
                     Text(i.fraction?.let { "Downloading · ${(it * 100).toInt()}%" } ?: "Downloading…",
                         style = MaterialTheme.typography.labelLarge)
                     Spacer(Modifier.height(Space.s))
-                    if (i.fraction != null) LinearWavyProgressIndicator(progress = { i.fraction }, Modifier.fillMaxWidth())
+                    val f = i.fraction
+                    if (f != null) LinearWavyProgressIndicator(progress = { f }, Modifier.fillMaxWidth())
                     else LinearWavyProgressIndicator(Modifier.fillMaxWidth())
                 }
                 AppUpdate.Install.Verifying, AppUpdate.Install.Installing -> {
@@ -276,68 +211,6 @@ private fun AppSection(ui: AppUpdateUi) {
     }
 }
 
-@Composable
-private fun FirmwareSection(state: HeadphonesState, ui: FirmwareUi) {
-    val context = LocalContext.current
-    val r = ui.result
-    val known = state.fwInputs() != null
-    StatusCard(
-        icon = when {
-            !known && r == null -> Icons.Outlined.Headphones
-            r?.available == true -> Icons.Outlined.NewReleases
-            r == null && ui.failed -> Icons.Outlined.CloudOff
-            else -> Icons.Outlined.CheckCircle
-        },
-        busy = ui.checking && r == null,
-        highlight = r?.available == true,
-        title = when {
-            r == null && !known -> "Connect the headphones to check"
-            r == null && ui.failed -> "Couldn't reach Sony"
-            r == null -> "Checking with Sony…"
-            r.available -> "Firmware ${r.latest} is available"
-            else -> "Firmware is up to date"
-        },
-        detail = listOfNotNull(
-            (state.firmware ?: r?.current)?.let { "Installed $it" },
-            r?.latest?.takeIf { !r.available }?.let { "latest $it" },
-            r?.sizeBytes?.takeIf { r.available }?.let { "%.1f MB".format(it / 1_048_576f) },
-        ).joinToString(" · ").ifEmpty { null },
-    ) {
-        if (r?.available == true) {
-            Spacer(Modifier.height(Space.m))
-            Text(
-                "Installing firmware stays with Sound Connect: it takes about 40 minutes over Bluetooth and must not be interrupted.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Spacer(Modifier.height(Space.s))
-            FilledTonalButton(onClick = { openSoundConnect(context) }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.SystemUpdate, null, Modifier.size(18.dp)); Spacer(Modifier.width(Space.s)); Text("Update in Sound Connect")
-            }
-        }
-    }
-    r?.changes?.let {
-        SectionHeader(if (r.available) "What's new in ${r.latest}" else "In this version", top = Space.m)
-        Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-            Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(Space.m))
-        }
-    }
-    val notice = r?.notice
-    if (notice != null) {
-        var open by remember { mutableStateOf(false) }
-        SectionHeader("Notes from Sony", top = Space.m)
-        Surface(
-            onClick = { open = !open }, modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow,
-        ) {
-            Text(
-                if (open) notice else notice.substringBefore("YOU SHOULD").substringBefore("\n\n\n").take(600).trim() + "…",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(Space.m),
-            )
-        }
-    }
-}
-
 /** GitHub release notes are Markdown; the page shows them as plain text. */
 private fun plainNotes(md: String) = md.lines().joinToString("\n") { line ->
     line.trimEnd()
@@ -352,9 +225,3 @@ private fun openUrl(context: android.content.Context, url: String) {
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }
 
-private fun openSoundConnect(context: android.content.Context) {
-    val pkg = "com.sony.songpal.mdr"
-    val launch = context.packageManager.getLaunchIntentForPackage(pkg)
-        ?: Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg"))
-    context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-}

@@ -11,7 +11,6 @@ import androidx.glance.ImageProvider
 import androidx.glance.LocalSize
 import androidx.glance.action.Action
 import androidx.glance.action.clickable
-import androidx.glance.action.actionStartActivity
 import androidx.glance.appwidget.appWidgetBackground
 import androidx.glance.appwidget.components.CircleIconButton
 import androidx.glance.appwidget.cornerRadius
@@ -32,34 +31,21 @@ import androidx.glance.layout.width
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
-import com.occaecat.hush.DeviceCardPanelActivity
 import com.occaecat.hush.R
-import com.occaecat.hush.mdr.AmbientMode
 
 // ---- shared pieces ----
 
-private val openPanel: Action get() = actionStartActivity<DeviceCardPanelActivity>()
-
-internal fun modeIcon(mode: AmbientMode?) = when (mode) {
-    AmbientMode.NOISE_CANCELLING -> R.drawable.ic_w_nc
-    AmbientMode.AMBIENT -> R.drawable.ic_w_ambient
-    AmbientMode.OFF -> R.drawable.ic_w_off
-    null -> R.drawable.ic_w_headphones
+/** Opens the device's quick panel when it has one, else the app. */
+class OpenAction : androidx.glance.appwidget.action.ActionCallback {
+    override suspend fun onAction(context: android.content.Context, glanceId: androidx.glance.GlanceId, parameters: androidx.glance.action.ActionParameters) {
+        val device = com.occaecat.hush.DeviceModules.current.value
+        val intent = device?.let { com.occaecat.hush.DeviceModules.controller(it).panelIntent(context) }
+            ?: com.occaecat.hush.devices.appIntent(context)
+        context.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
 }
 
-internal fun modeLabel(mode: AmbientMode?) = when (mode) {
-    AmbientMode.NOISE_CANCELLING -> "Noise cancelling"
-    AmbientMode.AMBIENT -> "Ambient sound"
-    AmbientMode.OFF -> "Off"
-    null -> "—"
-}
-
-internal fun shortLabel(mode: AmbientMode?) = when (mode) {
-    null -> "—"
-    AmbientMode.NOISE_CANCELLING -> "NC"
-    AmbientMode.AMBIENT -> "Ambient"
-    AmbientMode.OFF -> "Off"
-}
+private val openPanel: Action get() = androidx.glance.appwidget.action.actionRunCallback<OpenAction>()
 
 /** Rounded widget surface that follows the system (Material You) colors. */
 @Composable
@@ -73,7 +59,7 @@ private fun Surface(modifier: GlanceModifier = GlanceModifier, onClick: Action? 
 @Composable
 private fun Battery(s: WidgetState, sizeSp: Int) {
     Text(
-        s.battery?.takeIf { s.connected }?.let { "$it%" } ?: "—",
+        s.headline,
         style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = sizeSp.sp, fontWeight = FontWeight.Medium),
         maxLines = 1,
     )
@@ -94,9 +80,11 @@ private fun Title(text: String, sizeSp: Int = 15) {
 
 @Composable
 private fun Render(size: androidx.compose.ui.unit.Dp, s: WidgetState) {
-    Image(
-        ImageProvider(R.drawable.xm4_angle), contentDescription = s.name,
-        modifier = GlanceModifier.size(size), contentScale = ContentScale.Fit,
+    val render = s.render
+    if (render != null) Image(ImageProvider(render), contentDescription = s.name, modifier = GlanceModifier.size(size), contentScale = ContentScale.Fit)
+    else Image(
+        ImageProvider(R.drawable.ic_w_headphones), contentDescription = s.name, modifier = GlanceModifier.size(size * 0.6f),
+        colorFilter = ColorFilter.tint(GlanceTheme.colors.primary),
     )
 }
 
@@ -104,13 +92,13 @@ private fun Render(size: androidx.compose.ui.unit.Dp, s: WidgetState) {
 @Composable
 private fun ModeButtons(s: WidgetState, buttonSize: androidx.compose.ui.unit.Dp, gap: androidx.compose.ui.unit.Dp) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        AmbientMode.entries.forEachIndexed { i, mode ->
+        s.modes.forEachIndexed { i, mode ->
             if (i > 0) Spacer(GlanceModifier.width(gap))
-            val active = s.connected && s.mode == mode
+            val active = s.connected && mode.active
             CircleIconButton(
-                imageProvider = ImageProvider(modeIcon(mode)),
-                contentDescription = modeLabel(mode),
-                onClick = setMode(mode),
+                imageProvider = ImageProvider(mode.icon),
+                contentDescription = mode.label,
+                onClick = setMode(mode.id),
                 modifier = GlanceModifier.size(buttonSize),
                 backgroundColor = if (active) GlanceTheme.colors.primary else GlanceTheme.colors.secondaryContainer,
                 contentColor = if (active) GlanceTheme.colors.onPrimary else GlanceTheme.colors.onSecondaryContainer,
@@ -125,20 +113,20 @@ private fun LabeledModeButtons(s: WidgetState, fill: GlanceModifier? = null) {
     // With [fill] (a weight from the parent column) the buttons take all the height left over.
     val large = fill != null
     Row((fill ?: GlanceModifier).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        AmbientMode.entries.forEachIndexed { i, mode ->
+        s.modes.forEachIndexed { i, mode ->
             if (i > 0) Spacer(GlanceModifier.width(8.dp))
-            val active = s.connected && s.mode == mode
+            val active = s.connected && mode.active
             Column(
                 GlanceModifier.defaultWeight().let { if (large) it.fillMaxHeight() else it.height(64.dp) }.cornerRadius(20.dp)
                     .background(if (active) GlanceTheme.colors.primary else GlanceTheme.colors.secondaryContainer)
-                    .clickable(setMode(mode)),
+                    .clickable(setMode(mode.id)),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val color = if (active) GlanceTheme.colors.onPrimary else GlanceTheme.colors.onSecondaryContainer
-                Image(ImageProvider(modeIcon(mode)), null, GlanceModifier.size(if (large) 28.dp else 22.dp), colorFilter = ColorFilter.tint(color))
+                Image(ImageProvider(mode.icon), null, GlanceModifier.size(if (large) 28.dp else 22.dp), colorFilter = ColorFilter.tint(color))
                 if (large) Spacer(GlanceModifier.height(4.dp))
-                Text(shortLabel(mode), style = TextStyle(color = color, fontSize = if (large) 14.sp else 12.sp, fontWeight = FontWeight.Medium), maxLines = 1)
+                Text(mode.short, style = TextStyle(color = color, fontSize = if (large) 14.sp else 12.sp, fontWeight = FontWeight.Medium), maxLines = 1)
             }
         }
     }
@@ -158,12 +146,12 @@ fun BatteryContent(s: WidgetState) {
         ) {
             val tint = if (s.connected) GlanceTheme.colors.primary else GlanceTheme.colors.onSurfaceVariant
             Image(
-                ImageProvider(if (s.connected) modeIcon(s.mode) else R.drawable.ic_w_disconnected), null,
+                ImageProvider(if (!s.connected) R.drawable.ic_w_disconnected else s.active?.icon ?: R.drawable.ic_w_headphones), null,
                 GlanceModifier.size(if (big) 28.dp else 20.dp), colorFilter = ColorFilter.tint(tint),
             )
             Spacer(GlanceModifier.height(if (big) 6.dp else 2.dp))
             Battery(s, if (big) 30 else 18)
-            if (big) Caption(if (s.connected) modeLabel(s.mode) else s.status)
+            if (big) Caption(if (s.connected) s.active?.label ?: s.status else s.status)
         }
     }
 }
@@ -184,11 +172,11 @@ fun StatusContent(s: WidgetState) {
                 // Narrow: the model number is the useful part of the name, and modes get their short labels.
                 Title(if (wide) s.name else s.name.removePrefix("WH-"), if (wide) 15 else 14)
                 Caption(
-                    if (s.connected) listOfNotNull(s.battery?.let { "$it%" }, if (wide) modeLabel(s.mode) else shortLabel(s.mode)).joinToString(" · ")
+                    if (s.connected) listOfNotNull(s.headline, s.active?.let { if (wide) it.label else it.short }).joinToString(" · ")
                     else s.status
                 )
             }
-            if (wide) ModeButtons(s, 36.dp, 6.dp)
+            if (wide && s.modes.isNotEmpty()) ModeButtons(s, 36.dp, 6.dp)
         }
     }
 }
@@ -201,7 +189,8 @@ fun ControlsContent(s: WidgetState) {
     val large = size.height >= 200.dp && size.width >= 180.dp
     // Three buttons and two gaps must fit the width inside the 12dp padding.
     val gap = if (large) 10.dp else 6.dp
-    val button = minOf(if (large) 52.dp else 44.dp, (size.width - 24.dp - gap * 2) / 3)
+    val n = s.modes.size.coerceAtLeast(1)
+    val button = minOf(if (large) 52.dp else 44.dp, (size.width - 24.dp - gap * (n - 1)) / n)
     Surface {
         Column(
             GlanceModifier.fillMaxSize().padding(12.dp),
@@ -213,7 +202,7 @@ fun ControlsContent(s: WidgetState) {
                 Spacer(GlanceModifier.width(8.dp))
                 Column(GlanceModifier.defaultWeight()) {
                     Battery(s, if (large) 30 else 22)
-                    Caption(if (!s.connected) s.status else if (large) modeLabel(s.mode) else shortLabel(s.mode))
+                    Caption(if (!s.connected) s.status else s.active?.let { if (large) it.label else it.short } ?: s.status)
                 }
             }
             Spacer(GlanceModifier.defaultWeight())
@@ -240,30 +229,39 @@ fun DashboardContent(s: WidgetState) {
                         s.status, maxLines = 1,
                         style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = if (roomy) 14.sp else 13.sp),
                     )
-                    if (roomy && s.connected) {
+                    val activeLabel = s.active?.label
+                    if (roomy && s.connected && activeLabel != null) {
                         Spacer(GlanceModifier.height(4.dp))
                         Text(
-                            modeLabel(s.mode), maxLines = 1,
+                            activeLabel, maxLines = 1,
                             style = TextStyle(color = GlanceTheme.colors.primary, fontSize = 14.sp, fontWeight = FontWeight.Medium),
                         )
                     }
                 }
                 Spacer(GlanceModifier.width(8.dp))
-                BatteryRing(s, if (roomy) 64.dp else 50.dp)
+                if (s.battery != null || !s.connected) BatteryRing(s, if (roomy) 64.dp else 50.dp)
             }
             if (roomy) {
                 // Chips sit right on top of the mode buttons, which take whatever height is left.
-                Spacer(GlanceModifier.height(12.dp))
-                Row(GlanceModifier.fillMaxWidth()) {
-                    ToggleChip("DSEE Extreme", s.connected && s.dsee == true, s.connected && s.dsee != null, actionToggleDsee(), GlanceModifier.defaultWeight())
-                    Spacer(GlanceModifier.width(8.dp))
-                    ToggleChip("Speak-to-Chat", s.connected && s.speakToChat == true, s.connected && s.speakToChat != null, actionToggleStc(), GlanceModifier.defaultWeight())
+                // Without modes the switches move down to where the mode buttons would be.
+                if (s.modes.isEmpty()) Spacer(GlanceModifier.defaultWeight())
+                if (s.toggles.isNotEmpty()) {
+                    Spacer(GlanceModifier.height(12.dp))
+                    Row(GlanceModifier.fillMaxWidth().let { if (s.modes.isEmpty()) it.height(56.dp) else it }) {
+                        s.toggles.take(2).forEachIndexed { i, t ->
+                            if (i > 0) Spacer(GlanceModifier.width(8.dp))
+                            ToggleChip(t.label, s.connected && t.checked, s.connected && t.enabled, toggle(t.id), GlanceModifier.defaultWeight())
+                        }
+                    }
                 }
                 Spacer(GlanceModifier.height(8.dp))
-                LabeledModeButtons(s, GlanceModifier.defaultWeight())
+                if (s.modes.isNotEmpty()) LabeledModeButtons(s, GlanceModifier.defaultWeight())
             } else {
                 Spacer(GlanceModifier.defaultWeight())
-                LabeledModeButtons(s)
+                if (s.modes.isNotEmpty()) LabeledModeButtons(s)
+                else s.toggles.firstOrNull()?.let { t ->
+                    ToggleChip(t.label, s.connected && t.checked, s.connected && t.enabled, toggle(t.id), GlanceModifier.fillMaxWidth())
+                }
             }
         }
     }
@@ -328,5 +326,4 @@ private fun ringBitmap(level: Int, track: Int, progress: Int): android.graphics.
 
 private fun androidx.compose.ui.graphics.Color.toArgb() = android.graphics.Color.argb(alpha, red, green, blue)
 
-private fun actionToggleDsee() = androidx.glance.appwidget.action.actionRunCallback<ToggleDseeAction>()
-private fun actionToggleStc() = androidx.glance.appwidget.action.actionRunCallback<ToggleSpeakToChatAction>()
+

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="xposed_description">Shows the Sony headphones as a card in ColorOS My Devices.</string>
+    <string name="shortcut_chatgpt">Ask ChatGPT</string>
+    <string name="shortcut_claude">Ask Claude</string>
+</resources>

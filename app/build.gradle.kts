@@ -25,25 +25,15 @@ android {
 }
 
 dependencies {
-    implementation(project(":core"))
-    implementation(libs.play.services.wearable)
-    implementation(libs.play.services.location)
-    implementation(libs.kotlinx.coroutines.play.services)
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.material3.adaptive)
-    implementation(libs.androidx.compose.material.icons.extended)
-    implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.ui.graphics)
-    implementation(libs.androidx.compose.ui.tooling.preview)
+    // One line per brand: the shell lists them in DeviceModules.
+    implementation(project(":devices:api"))
+    implementation(project(":devices:sony"))
+    implementation(project(":devices:apple"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
-    implementation(libs.kotlinx.coroutines.android)
+    // Home screen widgets.
     implementation(libs.glance.appwidget)
     implementation(libs.glance.preview)
     implementation(libs.glance.appwidget.preview)
-    compileOnly(libs.libxposed.api)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
