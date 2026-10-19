@@ -71,7 +71,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.occaecat.hush.HeadphonesController
+import com.occaecat.hush.devices.AutoEqTarget
 import com.occaecat.hush.autoeq.AutoEq
 import kotlinx.coroutines.launch
 import kotlin.math.log10
@@ -89,12 +89,9 @@ private sealed interface Load<out T> {
  */
 @Composable
 fun AutoEqSheet(
+    /** Pre-filled search: the device's model. */
     modelName: String?,
-    bandCount: Int,
-    /** The preset slot Apply writes to (the active Manual / Custom slot, else Manual). */
-    targetPreset: Int,
-    vm: HeadphonesController,
-    onApplied: (AutoEq.Entry) -> Unit,
+    target: AutoEqTarget,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -112,13 +109,15 @@ fun AutoEqSheet(
     var query by rememberSaveable { mutableStateOf(modelName.orEmpty()) }
     var picked by remember { mutableStateOf<AutoEq.Entry?>(null) }
     var fit by remember { mutableStateOf<Load<AutoEq.Fit>>(Load.Loading) }
+    var curve by remember { mutableStateOf<List<AutoEq.Point>>(emptyList()) }
 
     fun pick(entry: AutoEq.Entry) {
         picked = entry
         fit = Load.Loading
         scope.launch {
             fit = try {
-                AutoEq.fit(AutoEq.curve(entry), bandCount)?.let { Load.Ready(it) }
+                curve = AutoEq.curve(entry)
+                target.fit(curve)?.let { Load.Ready(it) }
                     ?: Load.Failed("This headset's equalizer can't be matched to AutoEq curves")
             } catch (e: Exception) {
                 Load.Failed(e.message ?: "Network error")
@@ -146,13 +145,11 @@ fun AutoEqSheet(
                 SearchPage(query, { query = it }, index, onRetry = { reload++ }, onPick = ::pick)
             } else {
                 PreviewPage(
-                    entry, fit, Labels.presetNames[targetPreset] ?: "Manual",
+                    entry, fit, target,
                     onBack = { picked = null },
                     onRetry = { pick(entry) },
-                    onApply = { levels ->
-                        vm.applyEqBands(levels)
-                        AutoEq.rememberApplied(context, entry, targetPreset)
-                        onApplied(entry)
+                    onApply = { f ->
+                        target.apply(entry, curve, f)
                         onDismiss()
                     },
                 )
@@ -238,10 +235,10 @@ private fun SearchPage(
 private fun PreviewPage(
     entry: AutoEq.Entry,
     fit: Load<AutoEq.Fit>,
-    targetName: String,
+    target: AutoEqTarget,
     onBack: () -> Unit,
     onRetry: () -> Unit,
-    onApply: (List<Int>) -> Unit,
+    onApply: (AutoEq.Fit) -> Unit,
 ) {
     Column {
         SheetTitle(entry.name, entry.detail) {
@@ -267,15 +264,14 @@ private fun PreviewPage(
                         Spacer(Modifier.height(Space.s))
                         Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
                             Legend("AutoEq target", MaterialTheme.colorScheme.outline, dashed = true)
-                            Legend("Your headphones", MaterialTheme.colorScheme.primary)
+                            Legend("With the correction", MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
                 Spacer(Modifier.height(Space.m))
-                // The six levels that will be written.
-                Row(Modifier.fillMaxWidth().padding(horizontal = Space.m), horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
-                    f.levels.forEachIndexed { i, lv ->
-                        val db = lv - 10
+                // The levels that will be written, for band equalizers.
+                if (f.levels.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(horizontal = Space.m), horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
+                    f.levels.forEachIndexed { i, db ->
                         Surface(
                             Modifier.weight(1f),
                             shape = RoundedCornerShape(16.dp),
@@ -288,7 +284,7 @@ private fun PreviewPage(
                                     color = if (db == 0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
                                 )
                                 Text(
-                                    if (i == 0) "Bass" else Labels.sixBands[i],
+                                    target.bandLabels.getOrElse(i) { "${i + 1}" },
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -298,8 +294,11 @@ private fun PreviewPage(
                     }
                 }
                 Text(
-                    "Within ${"%.1f".format(f.rmsError)} dB of the target on average. The headset has six fixed bands, " +
-                        "so narrow peaks and dips can't be corrected. Saved to $targetName.",
+                    listOfNotNull(
+                        if (f.rmsError < 0.05) "Applied exactly" else "Within ${"%.1f".format(f.rmsError)} dB of the target on average",
+                        target.note,
+                        "Goes to ${target.label}.",
+                    ).joinToString(". ").replace("..", "."),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = Space.l, vertical = Space.m),
@@ -308,16 +307,16 @@ private fun PreviewPage(
                     Modifier.fillMaxWidth().padding(horizontal = Space.m).padding(bottom = Space.m),
                     horizontalArrangement = Arrangement.spacedBy(Space.s),
                 ) {
-                    var saved by remember(entry) { mutableStateOf(false) }
-                    OutlinedButton(
-                        onClick = {
-                            com.occaecat.hush.sound.SoundStore.saveEq(entry.name, f.levels, "AutoEq · ${entry.detail}")
-                            saved = true
-                        },
-                        enabled = !saved,
-                        modifier = Modifier.weight(1f).height(56.dp),
-                    ) { Text(if (saved) "In library" else "Save to library") }
-                    Button(onClick = { onApply(f.levels) }, modifier = Modifier.weight(1f).height(56.dp)) { Text("Apply") }
+                    val save = target.saveToLibrary
+                    if (save != null) {
+                        var saved by remember(entry) { mutableStateOf(false) }
+                        OutlinedButton(
+                            onClick = { save(entry, f); saved = true },
+                            enabled = !saved,
+                            modifier = Modifier.weight(1f).height(56.dp),
+                        ) { Text(if (saved) "In library" else "Save to library") }
+                    }
+                    Button(onClick = { onApply(f) }, modifier = Modifier.weight(1f).height(56.dp)) { Text("Apply") }
                 }
             }
         }

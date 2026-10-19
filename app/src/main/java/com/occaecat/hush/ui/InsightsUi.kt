@@ -53,10 +53,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.occaecat.hush.HeadphonesState
-import com.occaecat.hush.Phase
 import com.occaecat.hush.features.Insights
-import com.occaecat.hush.mdr.AmbientMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
@@ -72,26 +69,29 @@ private fun hours(h: Double) = when {
 
 /** The three Insights rows on the Device tab. */
 @Composable
-fun InsightsSection(state: HeadphonesState, modifier: Modifier, open: (String) -> Unit) {
-    val data by Insights.data.collectAsState()
-    val connected = state.phase == Phase.CONNECTED || state.phase == Phase.RECONNECTING
-    val level = state.battery?.takeIf { connected }
-    val nc = state.ncAsm?.mode == AmbientMode.NOISE_CANCELLING
-    val left = level?.let { it / Insights.drain(nc, data.battery).percentPerHour }
+fun InsightsSection(profile: Insights.Profile, live: Insights.Sample, modifier: Modifier, open: (String) -> Unit) {
+    val all by Insights.all.collectAsState()
+    val data = all[profile.key] ?: Insights.Snapshot()
+    val connected = live.connected
+    val level = live.battery?.takeIf { connected }
+    val nc = live.nc
+    val left = level?.let { it / Insights.drain(profile, nc, data.battery).percentPerHour }
     val dose = Insights.weeklyDose(data.days)
     val seen = data.lastSeen
     Column(modifier) {
         SectionHeader("Insights", top = Space.s)
         SegmentedGroup {
-            ValueRow(0, 3, Icons.Outlined.BatteryChargingFull, "Battery",
+            val b = if (profile.hasBattery) 1 else 0
+            val n = 2 + b
+            if (profile.hasBattery) ValueRow(0, n, Icons.Outlined.BatteryChargingFull, "Battery",
                 when {
-                    level != null && state.charging -> "$level% · charging"
+                    level != null && live.charging -> "$level% · charging"
                     level != null && left != null -> "$level% · about ${hours(left)} left"
                     else -> data.battery.lastOrNull()?.let { "Last seen at ${it.level}%" } ?: "No data yet"
                 }) { open("battery") }
-            ValueRow(1, 3, Icons.Outlined.Hearing, "Hearing",
+            ValueRow(b, n, Icons.Outlined.Hearing, "Hearing",
                 if (data.days.isEmpty()) "No listening recorded yet" else "This week ${(dose * 100).roundToInt()}% of the safe limit") { open("hearing") }
-            ValueRow(2, 3, Icons.Outlined.LocationOn, "Find my headphones",
+            ValueRow(b + 1, n, Icons.Outlined.LocationOn, "Find my ${profile.noun}",
                 when {
                     connected -> "Connected now"
                     seen != null -> "Last connected " + DateUtils.getRelativeTimeSpanString(seen.t)
@@ -102,22 +102,23 @@ fun InsightsSection(state: HeadphonesState, modifier: Modifier, open: (String) -
 }
 
 @Composable
-fun InsightsPage(which: String, state: HeadphonesState, onClose: () -> Unit) = when (which) {
-    "battery" -> BatteryPage(state, onClose)
-    "hearing" -> HearingPage(state, onClose)
-    else -> FindPage(state, onClose)
+fun InsightsPage(which: String, profile: Insights.Profile, live: Insights.Sample, onClose: () -> Unit) = when (which) {
+    "battery" -> BatteryPage(profile, live, onClose)
+    "hearing" -> HearingPage(profile, live, onClose)
+    else -> FindPage(profile, live, onClose)
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 
 @Composable
-private fun BatteryPage(state: HeadphonesState, onClose: () -> Unit) {
-    val data by Insights.data.collectAsState()
-    val connected = state.phase == Phase.CONNECTED || state.phase == Phase.RECONNECTING
-    val nc = state.ncAsm?.mode == AmbientMode.NOISE_CANCELLING
-    val drainNc = Insights.drain(true, data.battery)
-    val drainOff = Insights.drain(false, data.battery)
-    val level = state.battery?.takeIf { connected } ?: data.battery.lastOrNull()?.level
+private fun BatteryPage(profile: Insights.Profile, live: Insights.Sample, onClose: () -> Unit) {
+    val all by Insights.all.collectAsState()
+    val data = all[profile.key] ?: Insights.Snapshot()
+    val connected = live.connected
+    val nc = live.nc
+    val drainNc = Insights.drain(profile, true, data.battery)
+    val drainOff = Insights.drain(profile, false, data.battery)
+    val level = live.battery?.takeIf { connected } ?: data.battery.lastOrNull()?.level
     FullScreenPage("Battery", onClose) {
         Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
             Column(Modifier.padding(Space.l)) {
@@ -125,8 +126,8 @@ private fun BatteryPage(state: HeadphonesState, onClose: () -> Unit) {
                 val d = if (nc) drainNc else drainOff
                 Text(
                     when {
-                        state.charging && connected -> "Charging"
-                        level == null -> "Connect the headphones to start measuring"
+                        live.charging && connected -> "Charging"
+                        level == null -> "Connect the ${profile.noun} to start measuring"
                         else -> "About ${hours(level / d.percentPerHour)} left with noise canceling ${if (nc) "on" else "off"}"
                     },
                     style = MaterialTheme.typography.titleMedium,
@@ -192,8 +193,9 @@ private fun BatteryChart(samples: List<Insights.BatterySample>, modifier: Modifi
 // ---------------------------------------------------------------------------------------------------------------
 
 @Composable
-private fun HearingPage(state: HeadphonesState, onClose: () -> Unit) {
-    val data by Insights.data.collectAsState()
+private fun HearingPage(profile: Insights.Profile, live: Insights.Sample, onClose: () -> Unit) {
+    val all by Insights.all.collectAsState()
+    val data = all[profile.key] ?: Insights.Snapshot()
     val dose = Insights.weeklyDose(data.days)
     val today = LocalDate.now()
     val week = (6 downTo 0).map { today.minusDays(it.toLong()) }.map { d -> d to data.days.firstOrNull { it.date == d } }
@@ -239,7 +241,7 @@ private fun HearingPage(state: HeadphonesState, onClose: () -> Unit) {
         SegmentedGroup {
             InfoRow(0, 2, Icons.Outlined.Hearing, "Listening time", t?.let { hours(it.minutes / 60.0) } ?: "None yet")
             InfoRow(1, 2, Icons.Outlined.Hearing, "Average level",
-                t?.takeIf { it.minutes > 0 }?.let { val v = (it.volumeSum.toDouble() / it.minutes).roundToInt(); "Volume $v · ≈ ${Insights.estimatedDb(v, state.volumeSteps).roundToInt()} dB" } ?: "—")
+                t?.takeIf { it.minutes > 0 }?.let { val v = (it.volumeSum.toDouble() / it.minutes).roundToInt(); "Volume $v · ≈ ${Insights.estimatedDb(profile, v, live.volumeSteps).roundToInt()} dB" } ?: "—")
         }
         Text(
             "WHO's guideline is 80 dB for 40 hours a week; every 3 dB louder halves the safe time. Hush estimates the level " +
@@ -253,11 +255,12 @@ private fun HearingPage(state: HeadphonesState, onClose: () -> Unit) {
 // ---------------------------------------------------------------------------------------------------------------
 
 @Composable
-private fun FindPage(state: HeadphonesState, onClose: () -> Unit) {
+private fun FindPage(profile: Insights.Profile, live: Insights.Sample, onClose: () -> Unit) {
     val context = LocalContext.current
-    val data by Insights.data.collectAsState()
+    val all by Insights.all.collectAsState()
+    val data = all[profile.key] ?: Insights.Snapshot()
     val seen = data.lastSeen
-    val connected = state.phase == Phase.CONNECTED || state.phase == Phase.RECONNECTING
+    val connected = live.connected
     var permTick by remember { mutableIntStateOf(0) }
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permTick++ }
     val hasLoc = remember(permTick) { Insights.hasLocation(context) }
@@ -270,7 +273,7 @@ private fun FindPage(state: HeadphonesState, onClose: () -> Unit) {
             runCatching { Geocoder(context).getFromLocation(lat, lng, 1)?.firstOrNull()?.getAddressLine(0) }.getOrNull()
         }
     }
-    FullScreenPage("Find my headphones", onClose) {
+    FullScreenPage("Find my ${profile.noun}", onClose) {
         Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge,
             color = if (connected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh) {
             Column(Modifier.padding(Space.l)) {

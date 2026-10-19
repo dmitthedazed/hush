@@ -309,3 +309,80 @@ downloads its `GraphicEQ.txt` correction and fits it onto the headset's six band
   and dropped as soon as a band is moved by hand.
 
 For oratory1990's WH-1000XM4 measurement the fit is Clear Bass −2, +1, +2, +5, +2, +2 (RMS 1.5 dB vs 3.1 dB flat).
+
+## Device modules
+
+Hush is one app with one UI; what differs between devices is what they can do. Every brand is a Gradle module
+under `devices/` that reports state and capabilities; the app draws the same pages for all of them.
+
+```
+:app            shell (DeviceModules, MainActivity with the device switcher) + the shared pages:
+                DeviceUi (Listen / Sound / Device), AutoEqSheet, UpdatesPage, DeviceDetailsPage, AboutPage
+:ui             design kit: theme, rows, sheets, TabScaffold, DeviceShell (tabs), ProductHero, EqualizerHero,
+                PresetChips, NowPlayingCard + NowPlaying (phone media session), FullScreenPage, StatusCard
+:devices:api    DeviceModule + DeviceController contract, DeviceSwitcher, AutoEq, AppUpdate, appIntent()
+:devices:sony   SonyModule / SonyController (+ SonyEqualizer, SonyFirmware) and Sony-only sections and features
+:devices:apple  AppleModule / EarPodsController: EarPods (USB-C)
+:core           Sony MDR protocol and session, shared with :wear and :tv
+```
+
+- `DeviceController` = `state: StateFlow<DeviceState>` (name, connection, battery, hero chips, track, volume, card
+  facts, details…) + optional capabilities (`equalizer: Equalizer?`, `firmware: Firmware?`, `setVolume`) + slots for
+  what only that device has (`listenSections` / `soundSections` / `deviceSections`, `CardActions`, `aboutRows`,
+  `PlayerBadge`, `Overlays`, `Gate` for permission/picker screens, `statusPane`). A missing capability = that part of
+  the shared page isn't shown.
+- Shared pages: Listen = hero (render, battery or status label, chips) + device sections + player (phone media
+  session, device track/volume as fallback). Sound = EQ hero (bands, compare, reset, optional on/off) + preset groups
+  + AutoEq + device sections. Device = device card (+ device actions) + device sections + About (Updates: Hush and
+  the device's firmware; device's own rows; Device details; About Hush).
+- AutoEq: `Equalizer.autoEq: AutoEqTarget` says how a correction lands — Sony fits it onto six bands, the EarPods'
+  phone-side EQ takes the curve as is.
+- Device sections are `LazyStaggeredGridScope` extensions; Sony reads its state through a Compose `mutableStateOf`
+  snapshot so the grid rebuilds when the headset changes.
+- Modules can't see `:app` classes (`appIntent(context)` opens the app). Resources are non-transitive:
+  `com.occaecat.hush.ui.R` for shared ones, `com.occaecat.hush.sony.R` for Sony's. Kotlin packages of the moved Sony
+  code stayed `com.occaecat.hush.*`; keep file names unique per package across modules (same-name files clash at dex).
+- Shared app features (any device): the EQ library (`EqLibrary`: curves per equalizer layout, dB, `HUSHEQ2` share
+  codes, old `HUSHEQ1` XM4 codes still import; Sony's old `sound.json` library migrates on start), the sleep timer
+  (`SleepTimer` + `SleepTarget`: the device's own volume and power, or the phone's music volume), Insights (per device
+  key, battery only for devices with one; old XM4 data migrates to key `sony`), home screen widgets (show
+  `DeviceModules.current`, modes and switches from `QuickControls`), Updates, About, AutoEq, device details.
+- Shared device capabilities (`devices/api/.../DeviceControls.kt`), drawn by the shared pages in
+  `devices/api/.../ui/DeviceSettings.kt`, so a new brand fills in data rather than drawing UI:
+  - `NoiseControl`: modes (kind, button glyph, widget glyph), level and Focus on voice under a mode with `hasOptions`;
+    the Listen card, the ColorOS quick panel and the widgets' modes (`quickModes`) all come from it.
+  - `DeviceState.batteries`: one `BatteryLevel` or several (left / right / case); `battery` / `charging` are the
+    "how long does it last" view (lowest bud, never the case). The hero and the device card show all of them.
+  - `settings()`: `SettingsGroup`s of `Setting.Toggle` / `Choice` / `Action` for Listen, Sound or Device. Choice
+    sheets, "reconnect?" confirmations (`Confirm`), notes under a group and running actions (spinner + button) are
+    the shared UI's. Sony's DSEE / Speak-to-Chat switches, Buttons, Wearing, Conversation and Power & prompts are
+    this now (`ui/SonySettings.kt`); only rows that need their own layout (Sony's connection / peer list) stay sections.
+- Way forward (from Gadgetbridge, Galaxy Buds Client and OpenFreebuds): a module per brand (protocol), a model as
+  data (which capabilities, ranges, presets), refined at runtime by what the device reports (Sony's support-function
+  list); add a capability to `DeviceControls.kt` when a second brand needs the same thing.
+- Still Sony-only (tied to its protocol): scenes, Find Your Equalizer and the hearing
+  test (Sony's six-band tables), Adaptive Sound Control / app profiles, help, backup, the tile, notification,
+  ColorOS card, Xposed.
+- New brand: `devices/<brand>` shaped like `devices/apple`, include it in `settings.gradle.kts`, depend on it from
+  `:app`, add it to `DeviceModules.all`.
+
+## Apple EarPods (USB-C)
+
+`:devices:apple` (`com.occaecat.hush.apple`). USB 05AC:110B, firmware 26.81 on the reference pair.
+Three configurations: UAC2, UAC3 BADD Headset (subclass 0x24) and full UAC3, announced through BOS Configuration
+Summary capabilities; 48 kHz only (16/24-bit stereo out, mono mic); HID consumer remote (play/pause, vol±, voice
+command) plus an Apple vendor HID channel (usage page 0xFF00, 63-byte reports, protocol unknown, not used). Feature
+units only do mute/volume, and there is a hardware sidetone mixer (ALSA "Sidetone Mixing") that Android doesn't expose.
+
+- **Listing**: `AppleModule` lists the EarPods only while plugged in, so plugging them in switches the app to them.
+  `UsbAttachedActivity` carries the `USB_DEVICE_ATTACHED` filter (`xml/usb_earpods.xml`): "Always open Hush" there
+  also grants USB access; otherwise "Allow USB access" asks.
+- **Authenticity** (`apple/usb/EarPodsCheck.kt`): compares IDs, names, serial format, device descriptor, the three audio
+  configurations, HID report lengths (31/42), endpoint packet sizes, power and the BOS BADD headset summary with the
+  reference pair (fixtures in `devices/apple/src/test/resources/usb/`, `EarPodsCheckTest`). A fingerprint, not crypto.
+- **Equalizer** (`apple/earpods/SoftEq.kt`): `DynamicsProcessing` on session 0, 31 third-octave pre-EQ bands from the user's 10
+  bands (±12 dB) plus an optional AutoEq GraphicEQ correction, input lowered by the largest boost, limiter on.
+  `EarPodsService` (FGS) keeps the process alive while plugged in with the EQ on. Verified on ColorOS 16 2026-10-19: the
+  effect sits on the mixer thread that is routed to `AUDIO_DEVICE_OUT_USB_HEADSET` during playback.
+- Apple links (user guide PDF, manuals page 301005, checkcoverage, Platform Security "Verifying accessories",
+  apple.com/sound, warranty, store) are in `AppleLinks`.

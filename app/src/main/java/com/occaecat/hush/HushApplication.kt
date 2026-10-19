@@ -1,13 +1,17 @@
 package com.occaecat.hush
 
 import android.app.Application
+import kotlinx.coroutines.launch
 
 class HushApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        PhoneIntegrations.install(this)
-        com.occaecat.hush.sound.SoundStore.init(this)
-        com.occaecat.hush.features.Insights.start(this)
-        com.occaecat.hush.features.FirmwareWatch.start(this)
+        com.occaecat.hush.devices.EqLibrary.init(this)
+        DeviceModules.all.forEach { it.init(this) }
+        // Home screen widgets: a live Glance session recomposes by itself; this covers ended sessions.
+        val app = this
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main).launch {
+            com.occaecat.hush.widget.widgetState(app).collect { com.occaecat.hush.widget.HushWidgets.updateAll(app) }
+        }
     }
 }

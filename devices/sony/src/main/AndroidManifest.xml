@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Sony headphones: everything the XM4 support needs, merged into the app. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- AutoEq: the profile index and correction curves come from the AutoEq GitHub repository. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Adaptive Sound Control: activity transitions and My Places geofences. -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
+
+    <!-- Guards the ColorOS connect-card trigger the Xposed hook registers in com.heytap.accessory. -->
+    <permission
+        android:name="com.occaecat.hush.permission.CONNECT_CARD"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.occaecat.hush.permission.CONNECT_CARD" />
+
+    <!-- My Devices reads the card provider and opens the detail activity across packages. -->
+    <queries>
+        <package android:name="com.heytap.mydevices" />
+        <package android:name="com.heytap.accessory" />
+        <!-- AI assistant: voice mode in these apps. -->
+        <package android:name="com.openai.chatgpt" />
+        <package android:name="com.anthropic.claude" />
+        <!-- App profiles: the picker lists launchable apps. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
+    <application>
+        <service
+            android:name="com.occaecat.hush.features.FirmwareJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+        <service
+            android:name="com.occaecat.hush.HushService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <!-- Commands from the Hush watch app (Wearable Data Layer). -->
+        <service
+            android:name="com.occaecat.hush.wear.PhoneWearService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/hush/command" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name="com.occaecat.hush.HushTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_headphones"
+            android:label="Hush"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="true" />
+        </service>
+
+        <receiver android:name="com.occaecat.hush.AclReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ColorOS My Devices card: discovered by the DEVICE_INFO action, configured by the meta-data. -->
+        <provider
+            android:name="com.occaecat.hush.DeviceCardProvider"
+            android:authorities="com.occaecat.hush.devicecard"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="oplus.devicecards.action.DEVICE_INFO" />
+            </intent-filter>
+            <meta-data android:name="oplus.devicecards.provider" android:resource="@xml/device_card" />
+        </provider>
+
+        <activity
+            android:name="com.occaecat.hush.DeviceCardPanelActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.Hush.Panel"
+            android:taskAffinity="com.occaecat.hush.panel"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="com.oplus.mydevices.ACTION_DEVICE_DETAILED_PANEL" />
+                <action android:name="com.oplus.mydevices.ACTION_DEVICE_DETAILED_PAGE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+
+
+
+        <!-- AI assistant: Hush's "Ask …" shortcuts and in-app buttons. -->
+        <activity
+            android:name="com.occaecat.hush.assistant.VoiceCommandActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="com.occaecat.hush.ASK" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <!-- The headphones' voice button (VOICE_COMMAND); enabled only while ChatGPT or Claude is chosen. -->
+        <activity
+            android:name="com.occaecat.hush.assistant.VoiceCommandHandler"
+            android:enabled="false"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:label="Hush AI assistant"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VOICE_COMMAND" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+
+        <receiver
+            android:name="com.occaecat.hush.sound.AutomationReceiver"
+            android:exported="false" />
+
+        <!-- App profiles: notification access is what lets Hush see which app is playing. -->
+        <service
+            android:name="com.occaecat.hush.sound.MediaWatcher"
+            android:exported="true"
+            android:label="Hush app profiles"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>
