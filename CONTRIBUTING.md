@@ -16,7 +16,7 @@ Needs JDK 21 and the Android SDK. Modules: `app` (phone), `wear`, `tv`, and `cor
 
 ## Rules of thumb
 
-- No analytics, accounts or trackers. The app only talks to GitHub and Sony's own servers.
+- No analytics, accounts or trackers. The app only talks to GitHub and the headphone makers' own servers.
 - Keep device identifiers (serial, Bluetooth address) hidden by default in the UI.
 
 ## Pull requests

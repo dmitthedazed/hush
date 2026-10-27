@@ -4,9 +4,9 @@
 
 # Hush
 
-**Your Sony WH-1000XM4, without Sound Connect.**
+**Liberate your headphones from vendor apps.**
 
-An Android controller that talks to the headphones directly. No account, no analytics, and a few things Sony's app never did.
+No accounts, no tracking, no shady software. Sony MDR v1/v2 and Apple EarPods (USB-C) for now, more brands soon.
 
 [![Release](https://img.shields.io/github/v/release/dmitthedazed/hush?style=flat-square&color=d6d07a)](https://github.com/dmitthedazed/hush/releases/latest)
 ![Android 12+](https://img.shields.io/badge/Android-12%2B-3ddc84?style=flat-square&logo=android&logoColor=white)
@@ -25,7 +25,18 @@ An Android controller that talks to the headphones directly. No account, no anal
 
 ## Why
 
-Sound Connect is heavy, logs usage analytics and still hides a lot of what the headphones can do. Hush reimplements Sony's protocol from scratch and puts every setting on three tabs, **Listen**, **Sound** and **Device**, in your wallpaper's colours.
+Headphone makers ship heavy apps that want an account, log what you do and still hide half of what the hardware can. Hush talks to the headphones directly over the vendor's own protocol, reimplemented from scratch, and puts every setting on three tabs, **Listen**, **Sound** and **Device**, in your wallpaper's colours.
+
+## Supported headphones
+
+| Brand | Protocol | Status |
+| --- | --- | --- |
+| Sony | MDR v1 | Tested on WH-1000XM4 |
+| Sony | MDR v2 | Fully implemented, needs testers |
+| Apple | USB audio | EarPods (USB-C): equalizer on the phone, remote, authenticity check |
+| More brands | | Soon |
+
+Got Sony headphones on MDR v2, or something else? Try Hush and [report how it went](https://github.com/dmitthedazed/hush/issues/new/choose), that's the fastest way to get them supported.
 
 ## Listen
 
@@ -43,11 +54,11 @@ Sound Connect is heavy, logs usage analytics and still hides a lot of what the h
 
 ## Device
 
-- Every Sound Connect setting: CUSTOM button, touch panel, wearing detection, NC optimizer, auto power off, voice guidance, multipoint
+- Every setting from the vendor app: CUSTOM button, touch panel, wearing detection, NC optimizer, auto power off, voice guidance, multipoint
 - **Touch and hold** can open ChatGPT or Claude voice mode, switch noise modes, step through scenes, start a sleep timer, recognise a song, record a voice note, toggle the flashlight or fire a Tasker intent
 - **Insights**: battery history with an honest time-left estimate, weekly sound dose (WHO 80 dB × 40 h), and where you last had them
 - **Updates** for Hush itself and for the headphones' firmware, checked weekly
-- How-to guide, first-run tour and help articles from Sony
+- How-to guide, first-run tour and help articles from the manufacturer
 - Backup and restore everything to one JSON file
 
 <p align="center">
@@ -70,17 +81,17 @@ Home-screen widgets, a Quick Settings tile, a live notification with mode button
 
 1. Download `hush-<version>-phone.apk` from the [latest release](https://github.com/dmitthedazed/hush/releases/latest). Use `-wear` for the watch and `-tv` for Android TV.
 2. Pair the headphones in Android's Bluetooth settings, open Hush and pick them.
-3. Close Sony Sound Connect. The headphones talk to one app at a time.
+3. Close the vendor app (for Sony, Sound Connect). The headphones talk to one app at a time.
 
 Builds are signed with a development key, so Android asks once about an unknown developer. After that Hush updates itself from GitHub releases (Device → About → Updates).
 
 > [!NOTE]
-> Tested on a WH-1000XM4 (firmware 3.0.1) with a realme phone on ColorOS 16. Other Sony models with the same protocol may partly work.
+> Tested on a Sony WH-1000XM4 (firmware 3.0.1) with a realme phone on ColorOS 16.
 
 <details>
 <summary>How it works</summary>
 
-Hush opens the headphones' RFCOMM control channel and speaks Sony's MDR v1 protocol: frames, ACKs, command tables 1 and 2. Sony's cloud features are reached the way Sound Connect reaches them: the Concierge service for tutorials and help, the model catalogue for per-colour renders, and `info.update.sony.net` for firmware.
+For Sony, Hush opens the headphones' RFCOMM control channel and speaks the MDR protocol: frames, ACKs, command tables 1 and 2. Sony's cloud features are reached the way Sound Connect reaches them: the Concierge service for tutorials and help, the model catalogue for per-colour renders, and `info.update.sony.net` for firmware.
 
 All of it is written up, with pointers into the decompiled Sound Connect 13.3.0, in [docs/NOTES.md](docs/NOTES.md).
 
@@ -102,7 +113,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Disclaimer
 
-Hush is an independent project, not affiliated with or endorsed by Sony. Sony, WH-1000XM4, Sound Connect, DSEE Extreme and LDAC are trademarks of Sony Group Corporation. Product images, tutorials, help articles and firmware information belong to Sony and are fetched from Sony's servers for use with headphones you own.
+Hush is an independent project and is not affiliated with, endorsed or supported by Sony, Apple or any other headphone maker. Product names and logos are trademarks of their owners: Sony, WH-1000XM4, Sound Connect, DSEE Extreme and LDAC belong to Sony Group Corporation; Apple and EarPods belong to Apple Inc.
+
+Product images, tutorials, help articles and firmware information belong to their manufacturers. Hush fetches them from the manufacturers' own servers, only for use with headphones you own.
 
 ## License
 
