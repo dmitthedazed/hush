@@ -1,0 +1,11 @@
+name: Feature request
+description: A new feature, or support for other headphones
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea
+      description: What should Hush do? If it's another model, which one and does it work with Sound Connect?
+    validations:
+      required: true

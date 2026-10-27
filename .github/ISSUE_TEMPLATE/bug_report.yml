@@ -1,0 +1,42 @@
+name: Bug report
+description: Something doesn't work with your headphones
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got. Screenshots help.
+    validations:
+      required: true
+
+  - type: input
+    id: headphones
+    attributes:
+      label: Headphones and firmware
+      description: Device → Device details
+      placeholder: WH-1000XM4, 3.0.1
+    validations:
+      required: true
+
+  - type: input
+    id: phone
+    attributes:
+      label: Phone and Android version
+      placeholder: Pixel 8, Android 16
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Hush version
+      description: Device → About Hush
+      placeholder: 0.17.0
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: "Optional: `adb logcat | grep -i hush` while it happens."
+      render: text
