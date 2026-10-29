@@ -13,6 +13,8 @@ import android.graphics.drawable.Icon
 import android.os.IBinder
 import android.util.Log
 import com.occaecat.hush.mdr.AmbientMode
+import com.occaecat.hush.jabra.firmware.JabraFirmwareUpdateState
+import com.occaecat.hush.jabra.firmware.FirmwareUpdateStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,6 +31,7 @@ class HushService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val controller by lazy { HeadphonesController.get(this) }
+    private var firmwareWakeLock: android.os.PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -42,11 +45,20 @@ class HushService : Service() {
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
         )
-        startForeground(ID, build(CardSnapshot(controller.state.value)), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        startForeground(ID, build(CardSnapshot(controller.state.value), controller.state.value.firmwareUpdate), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        running = true
         // Adaptive Sound Control and app profiles live as long as the headset session does.
         com.occaecat.hush.sound.SoundAutomation.start(this)
         scope.launch {
-            controller.state.map(::CardSnapshot).distinctUntilChanged().collect { nm.notify(ID, build(it)) }
+            controller.state.map { CardSnapshot(it) to it.firmwareUpdate }.distinctUntilChanged().collect { (card, update) ->
+                val transferring = update?.status == FirmwareUpdateStatus.TRANSFERRING
+                if (transferring && firmwareWakeLock?.isHeld != true) {
+                    firmwareWakeLock = getSystemService(android.os.PowerManager::class.java)
+                        .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "$packageName:firmware")
+                        .apply { acquire(50 * 60_000L) }
+                } else if (!transferring) releaseFirmwareWakeLock()
+                nm.notify(ID, build(card, update))
+            }
         }
     }
 
@@ -58,18 +70,30 @@ class HushService : Service() {
     }
 
     override fun onDestroy() {
+        running = false
+        releaseFirmwareWakeLock()
         scope.cancel()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun build(s: CardSnapshot): Notification {
+    private fun releaseFirmwareWakeLock() {
+        firmwareWakeLock?.let { if (it.isHeld) it.release() }
+        firmwareWakeLock = null
+    }
+
+    private fun build(s: CardSnapshot, update: JabraFirmwareUpdateState? = null): Notification {
         val open = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            PendingIntent.FLAG_IMMUTABLE,
+            this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                .apply { if (update != null) putExtra("open", "firmware") },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val status = when {
+            update?.status == FirmwareUpdateStatus.AWAITING_CASE -> "Put both earbuds in the case and close it. Wait for the case LED to stop flashing."
+            update?.status == FirmwareUpdateStatus.VERIFYING -> "Checking installed firmware"
+            update?.status == FirmwareUpdateStatus.TRANSFERRING -> "Updating firmware: ${update.progress?.percent ?: 0}%"
+            update?.status == FirmwareUpdateStatus.INTERRUPTED || update?.status == FirmwareUpdateStatus.FAILED -> update.error ?: "Firmware update needs attention"
             s.connecting -> "Connecting…"
             !s.connected -> "Disconnected"
             else -> listOfNotNull(
@@ -88,13 +112,14 @@ class HushService : Service() {
             .setContentTitle(s.name ?: "Headphones")
             .setContentText(status)
             .setStyle(Notification.BigTextStyle().bigText(status))
-            .setContentIntent(if (s.connected) panel else open)
+            .setContentIntent(if (s.connected && (update == null || update.status == FirmwareUpdateStatus.SUCCEEDED)) panel else open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setCategory(Notification.CATEGORY_STATUS)
-        if (s.connected) {
+        if (update?.status == FirmwareUpdateStatus.TRANSFERRING) builder.setProgress(100, update.progress?.percent ?: 0, false)
+        if (s.connected && update?.active != true) {
             for (mode in s.noiseModes) {
                 val pi = PendingIntent.getService(
                     this, mode.ordinal + 1,
@@ -114,6 +139,8 @@ class HushService : Service() {
     }
 
     companion object {
+        @Volatile var running: Boolean = false
+            private set
         private const val TAG = "HushService"
         private const val CHANNEL = "controls"
         private const val ID = 1

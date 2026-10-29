@@ -2,6 +2,8 @@
 
 package com.occaecat.hush.ui
 
+import androidx.compose.material3.TextButton
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
@@ -127,6 +129,12 @@ fun ListenTab(state: HeadphonesState, vm: HeadphonesController) {
         pinnedHero = if (showHero) ({ collapse -> ListenHero(state, collapse, vm::refreshBattery) }) else null,
     ) {
         when (state.phase) {
+            Phase.UPDATING -> wideItem {
+                Column(ItemWidth.padding(Space.m)) {
+                    Text("Firmware update in progress", style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = { DeepLink.open("firmware") }) { Text("View installation") }
+                }
+            }
             Phase.CONNECTING -> if (!showHero) wideItem { ConnectingHero(state, ItemWidth) }
             Phase.FAILED -> state.elsewhere?.let { other -> wideItem { ElsewhereCard(other, vm::takeControl, ItemWidth) } } ?: wideItem {
                 FailedHero(

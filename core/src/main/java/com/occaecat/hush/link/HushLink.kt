@@ -59,10 +59,12 @@ data class Snapshot(
     val error: String? = null,
 ) {
     val connected get() = phase == Phase.CONNECTED
-    val busy get() = phase == Phase.CONNECTING || phase == Phase.RECONNECTING
+    val busy get() = phase == Phase.CONNECTING || phase == Phase.RECONNECTING || phase == Phase.UPDATING
 
     fun toJson(): String = JSONObject().apply {
-        put("phase", phase.name)
+        // Older watch versions must still decode the snapshot and disable their controls.
+        put("phase", if (phase == Phase.UPDATING) Phase.RECONNECTING.name else phase.name)
+        if (phase == Phase.UPDATING) put("firmwareUpdating", true)
         putOpt("name", name)
         putOpt("battery", battery)
         put("charging", charging)
@@ -75,7 +77,7 @@ data class Snapshot(
         putOpt("eqPreset", eqPreset)
         put("eqPresets", JSONArray(eqPresets))
         put("hasAddress", hasAddress)
-        putOpt("reconnectReason", reconnectReason)
+        putOpt("reconnectReason", if (phase == Phase.UPDATING) "Firmware update in progress" else reconnectReason)
         put("brand", brand)
         put("noiseModes", JSONArray(noiseModes.map { it.name }))
         put("ambientMin", ambientMin)
@@ -140,7 +142,7 @@ data class Snapshot(
             fun str(k: String) = if (o.has(k) && !o.isNull(k)) o.getString(k) else null
             val presets = o.optJSONArray("eqPresets")
             Snapshot(
-                phase = Phase.valueOf(o.getString("phase")),
+                phase = if (o.optBoolean("firmwareUpdating")) Phase.UPDATING else Phase.valueOf(o.getString("phase")),
                 name = str("name"),
                 battery = int("battery"),
                 charging = o.optBoolean("charging"),

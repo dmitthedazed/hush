@@ -151,7 +151,7 @@ Start with read-only capability and connection/database queries on the two model
 
 Hush's existing Sony peer list can supply presentation components. Its protocol IDs, playback order, result codes, and LDAC restrictions cannot be reused as Jabra semantics. Introduce explicit action capabilities and an `isCurrentController` field: comparing a source address with `HeadphonesState.address` compares it with the **headset's** address. An intentional controller-source disconnect also needs a policy that prevents automatic reconnect from undoing the action.
 
-## Proposed implementation order
+## Original proposed implementation order
 
 1. Add a Jabra firmware manifest provider, package validation, release notes, and download-only verification; generalize the current Sony-only firmware-check result.
 2. Add MyControls read/write/reset with capability and lock handling; verify reversible changes on both models against Sound+.
@@ -175,4 +175,14 @@ These paths refer to the supplied APK's reconstructed files, not files to distri
 - `ui/mycontrols/model/MyControlsConfigurationModelMapper.java`: HOLD exclusion; `ui/mycontrols/rules/SpotifyMyControlsBusinessRule.java` and `GoogleBistoControlsBusinessRule.java`: reserved assignments.
 - `meta/DeviceToggle.java`, `JabraDevicePairingListHandler.java`, `DeviceProductId.java`: pairing-screen product gate.
 
-Decompiled control flow is evidence to be checked against schemas and captures, not source code to copy. The earlier tests in [JABRA.md](JABRA.md) establish the existing controls; they do not establish any of the new writes described here.
+Decompiled control flow is evidence to be checked against schemas and captures, not source code to copy. See the extension validation in [JABRA.md](JABRA.md) for the subsequent reversible button tests and read-only firmware checks. Firmware installation remains physically unqualified. Multipoint management was not selected for this implementation.
+
+## Implementation status
+
+The firmware discovery, download verification, and phone update flow described above are now implemented. `app/update/JabraFirmware.kt` reads the public product-specific manifests and package metadata independently of the Sony updater. It requires the verified Elite 10 or Elite 85t product ID, checks the public model name, target PIDs and version, preserves the device-reported language, and requires each partition in the supported model's complete partition set exactly once. Component ordering follows `updateOrder`, preserving XML order for equal values. Unknown partition layouts or a package requiring a newer updater metadata profile fail closed; the current compatibility profile is the researched `5.0.0.0`, not Hush's app version.
+
+Downloads accept HTTPS from `jabra.com` and `www.jabra.com` only, revalidate every redirect, and bound metadata, file sizes, and redirect count. XML external declarations are rejected, filenames cannot escape the package directory, and signed-header metadata selects the documented checksum offset while retaining the complete transferred file. The cache is private to Hush, binds entries to the package source, writes complete files atomically, and revalidates metadata and each file's CRC before producing the core's immutable verified package. No manufacturer firmware or decompiled implementation is distributed with Hush.
+
+The phone Updates page and weekly background checks now support Jabra alongside the existing Sony path. Background work only checks availability. Preparing an update reads protocol, language, lock, readiness, and battery state, downloads the selected files, and opens an explicit installation review. The install action requires a newer firmware version for the same selected device and a running foreground service. The controller repeats readiness and applicability checks before any erase. Firmware progress survives leaving the page; cancellation is offered only while the core reports it is safe before erase. The UI explains charging-case completion and provides a read-only installed-version check after the case update light has stopped flashing. Installation is reported successful only after the controller verifies the target version on the original device.
+
+The installer is presented as experimental. Implemented transfer and recovery logic still requires physical update qualification; previous hardware tests exercised existing controls, not a firmware installation. Pure parser tests cover model/version/language mismatches, missing and duplicate partitions, ordering, unsafe URLs and filenames, XML declarations, and unsupported metadata profiles. Optional local evidence tests parse the previously downloaded public metadata for all six languages and run all nine English files through the production CRC/package factories when those research files are available outside the repository. These tests neither redistribute firmware nor send Bluetooth commands.

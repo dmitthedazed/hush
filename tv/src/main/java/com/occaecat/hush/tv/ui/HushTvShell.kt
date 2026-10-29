@@ -239,4 +239,5 @@ fun statusLine(state: HeadphonesState) = when (state.phase) {
     Phase.RECONNECTING -> state.reconnectReason ?: "Reconnecting…"
     Phase.FAILED -> state.error ?: "Not connected"
     Phase.IDLE -> "Not connected"
+    Phase.UPDATING -> "Firmware update in progress"
 }

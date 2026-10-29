@@ -90,8 +90,8 @@ object SoundAutomation {
         var baselineLayout: String? = null
         // Device changes must invalidate restore points immediately, even when the debounce hides a short visit.
         scope.launch {
-            controller.state.map { it.address }.distinctUntilChanged().collect { address ->
-                if (baselineAddress != address) {
+            controller.state.map { it.address to (it.phase == Phase.UPDATING) }.distinctUntilChanged().collect { (address, updating) ->
+                if (baselineAddress != address || updating) {
                     baseline = null
                     applied = null
                     baselineAddress = address

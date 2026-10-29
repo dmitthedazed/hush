@@ -12,6 +12,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HushLinkTest {
+    @Test fun firmwareUpdateKeepsOldWatchMessagesReadableAndDisablesControls() {
+        val snapshot = Snapshot.from(HeadphonesState(phase = Phase.UPDATING, brand = HeadphoneBrand.JABRA))
+        val json = snapshot.toJson()
+        assertEquals("RECONNECTING", org.json.JSONObject(json).getString("phase"))
+        val decoded = Snapshot.fromJson(json)!!
+        assertEquals(Phase.UPDATING, decoded.phase)
+        assertTrue(decoded.busy)
+        assertFalse(decoded.connected)
+        assertEquals("Firmware update in progress", decoded.reconnectReason)
+    }
+
     @Test fun jabraCapabilitiesAndUnknownBatterySurviveTransport() {
         val snapshot = Snapshot(
             phase = Phase.CONNECTED, brand = "JABRA", ambientMin = 0, ambientMax = 5,

@@ -89,7 +89,7 @@ object SleepTimer {
         if (_state.value == State.Off) return
         val address = targetAddress
         deviceJob = scope.launch {
-            controller.state.map { it.address }.distinctUntilChanged().first { it != address }
+            controller.state.first { it.address != address || it.phase == Phase.UPDATING }
             cancel()
         }
     }

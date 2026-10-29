@@ -18,6 +18,10 @@ import androidx.compose.material.icons.outlined.Timelapse
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import com.occaecat.hush.HeadphonesController
 import com.occaecat.hush.HeadphonesState
 import com.occaecat.hush.Phase
@@ -27,10 +31,21 @@ private val TouchTitles = setOf("TOUCH_PANEL_SETTING", "TOUCH_SENSOR_CONTROL_PAN
 
 @Composable
 fun DeviceScreen(state: HeadphonesState, vm: HeadphonesController) {
+    var buttons by rememberSaveable { mutableStateOf(false) }
+    if (buttons) {
+        JabraButtonsScreen(state, vm) { buttons = false }
+        return
+    }
     val dialogs = rememberDialogState()
     val busy = state.audioSettling || state.phase != Phase.CONNECTED
     SectionScaffold("Device") {
         if (sessionBanner(state, vm)) {
+            if (state.isJabra) {
+                item { SectionHeader("Buttons") }
+                item {
+                    ValueRow(Icons.Outlined.TouchApp, "Button controls", "Music and call assignments", enabled = !busy) { buttons = true }
+                }
+            }
             state.speakToChat?.let { stc ->
                 item { SectionHeader("Speak-to-Chat") }
                 item {

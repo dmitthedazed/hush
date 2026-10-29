@@ -72,7 +72,7 @@ fun HeadphonesPanel(
                     val nc = state.ncAsm!!
                     NoiseControlCard(state, vm, Modifier.fillMaxWidth())
                 }
-                state.phase == Phase.CONNECTING || state.phase == Phase.RECONNECTING ->
+                state.phase == Phase.CONNECTING || state.phase == Phase.RECONNECTING || state.phase == Phase.UPDATING ->
                     LoadingIndicator(Modifier.padding(Space.l))
                 else -> FilledTonalButton(onClick = { vm.connectSaved() }) { Text("Connect") }
             }

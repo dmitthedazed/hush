@@ -5,6 +5,7 @@ import com.occaecat.hush.DeviceCapabilities
 import com.occaecat.hush.HeadphoneBrand
 import com.occaecat.hush.HeadphonesState
 import com.occaecat.hush.backend.HeadphoneBackend
+import com.occaecat.hush.jabra.firmware.*
 import com.occaecat.hush.mdr.AmbientMode
 import com.occaecat.hush.mdr.EqState
 import com.occaecat.hush.mdr.NcAsmState
@@ -50,6 +51,8 @@ class JabraBackend internal constructor(private val client: GnpClient, parent: C
     private var equalizerBypassDenied = false
     @Volatile private var ready = false
     @Volatile private var stopped = false
+    @Volatile private var updating = false
+    private val buttons = JabraButtons(client)
 
     override suspend fun open() {
         checkActive()
@@ -58,7 +61,7 @@ class JabraBackend internal constructor(private val client: GnpClient, parent: C
         }
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             client.events.collect { event ->
-                if (!ready || stopped) return@collect
+                if (!ready || stopped || updating) return@collect
                 if (event.topic == JabraProtocol.BATTERY) {
                     publishBattery(event.payload)
                 } else if (event.topic == JabraProtocol.EVENTS || event.topic == JabraProtocol.AMBIENCE) {
@@ -72,6 +75,7 @@ class JabraBackend internal constructor(private val client: GnpClient, parent: C
                                 if (event.topic == JabraProtocol.EVENTS && event.payload.firstOrNull()?.u() != 9) {
                                     refreshSettings()
                                     refreshEqualizer()
+                                    if (state.value.jabraButtons != null) refreshButtons()
                                 }
                             }
                         } catch (_: IOException) { /* next push/reconnect refreshes the state */ }
@@ -97,7 +101,7 @@ class JabraBackend internal constructor(private val client: GnpClient, parent: C
             ambientMax = available?.ambientMax ?: 0,
             ancMax = available?.ancMax ?: 0,
         )
-        mutableState.update { it.copy(modelName = identity.label, capabilities = capabilities,
+        mutableState.update { it.copy(modelName = identity.label, jabraProductId = identity.productId, capabilities = capabilities,
             ncAsm = NcAsmState(initialMode, 0, false)) }
         optional {
             val subscription = JabraProtocol.eventSubscription(client.read(JabraProtocol.EVENTS))
@@ -219,6 +223,50 @@ class JabraBackend internal constructor(private val client: GnpClient, parent: C
             throw IOException("Invalid Jabra battery response")
     }
 
+    suspend fun refreshJabraButtons() = change("buttons-refresh") { refreshButtons() }
+
+    private suspend fun refreshButtons() = buttonOperation { buttons.read() }
+
+    suspend fun setJabraButton(slot: JabraButtonSlot, action: Int) = change("buttons", conflate = false) {
+        buttonOperation { buttons.set(slot, action) }
+    }
+
+    suspend fun resetJabraButtons(context: JabraButtonContext) = change("buttons", conflate = false) {
+        buttonOperation { buttons.reset(context) }
+    }
+
+    private suspend fun buttonOperation(block: suspend () -> JabraButtonState) {
+        mutableState.update { it.copy(jabraButtons = (it.jabraButtons ?: JabraButtonState()).copy(loading = true, error = null)) }
+        try {
+            val confirmed = block()
+            mutableState.update { it.copy(jabraButtons = confirmed) }
+        } catch (e: CancellationException) { throw e
+        } catch (e: Exception) {
+            mutableState.update { it.copy(jabraButtons = ((e as? JabraButtonConfirmationException)?.observed ?: it.jabraButtons)
+                ?.copy(loading = false, error = e.message ?: "Could not confirm button assignments")) }
+            throw e
+        }
+    }
+
+    suspend fun readFirmwareReadiness(): JabraFirmwareReadiness = operations.withLock {
+        checkActive()
+        check(ready && !updating) { "Jabra controls are busy" }
+        JabraFirmwareUpdater(client).readReadiness(checkNotNull(model).productId).also { value ->
+            mutableState.update { it.copy(jabraFirmwareReadiness = value) }
+        }
+    }
+
+    suspend fun installFirmware(firmware: JabraFirmwarePackage, onProgress: (JabraFirmwareProgress) -> Unit) {
+        check(ready && !updating) { "Jabra controls are busy" }
+        updating = true
+        // Hold exclusive ownership until the controller closes this session, including after GO.
+        operations.withLock {
+            checkActive()
+            require(firmware.productId == checkNotNull(model).productId) { "Firmware belongs to another model" }
+            JabraFirmwareUpdater(client).transfer(firmware, onProgress)
+        }
+    }
+
     private fun publishBattery(payload: ByteArray): Boolean {
         val battery = JabraProtocol.battery(payload) ?: return false
         if (!stopped) mutableState.update { it.copy(battery = battery.aggregate, batteries = battery.components, charging = battery.charging) }
@@ -293,7 +341,7 @@ class JabraBackend internal constructor(private val client: GnpClient, parent: C
     }
 
     /** Serialize write + readback as a unit, dropping slider requests superseded while queued. */
-    private suspend fun change(key: String, action: suspend () -> Unit) = coroutineScope {
+    private suspend fun change(key: String, conflate: Boolean = true, action: suspend () -> Unit) = coroutineScope {
         val operationJob = currentCoroutineContext()[Job]!!
         val cancellation = job.invokeOnCompletion { operationJob.cancel() }
         val token = ticket.incrementAndGet()
@@ -302,7 +350,8 @@ class JabraBackend internal constructor(private val client: GnpClient, parent: C
             operations.withLock {
                 checkActive()
                 check(ready) { "Jabra controls are not ready" }
-                if (latest[key] != token) return@withLock
+                if (updating) throw IOException("A firmware update is in progress")
+                if (conflate && latest[key] != token) return@withLock
                 try {
                     action()
                     checkActive()

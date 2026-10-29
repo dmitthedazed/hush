@@ -35,7 +35,11 @@ object Scenes {
     private fun observeDevice(controller: HeadphonesController) {
         if (observingDevice) return
         observingDevice = true
-        scope.launch { controller.state.map { it.address }.distinctUntilChanged().collect(::forDevice) }
+        scope.launch {
+            controller.state.map { it.address to (it.phase == Phase.UPDATING) }.distinctUntilChanged().collect { (address, updating) ->
+                if (updating) clear() else forDevice(address)
+            }
+        }
     }
 
     /** Tap on a scene chip: switches it on, or, if it is already on, switches it off and restores what was before. */

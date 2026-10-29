@@ -399,6 +399,7 @@ fun subtitleFor(state: HeadphonesState) = when (state.phase) {
     Phase.RECONNECTING -> "Reconnecting…"
     Phase.FAILED -> state.elsewhere?.let { "Controls on $it" } ?: "Not connected"
     Phase.IDLE -> null
+    Phase.UPDATING -> "Firmware update in progress"
 }
 
 /** Shown on Sound and Device while there is no control session. */
@@ -418,6 +419,7 @@ fun NotConnectedPlaceholder(state: HeadphonesState, modifier: Modifier = Modifie
             when {
                 state.elsewhere != null -> "Controls are on ${state.elsewhere}"
                 state.phase == Phase.FAILED -> "Headphones not connected"
+                state.phase == Phase.UPDATING -> "Firmware update in progress"
                 else -> "Waiting for the headphones"
             },
             style = MaterialTheme.typography.titleLargeEmphasized,
@@ -425,6 +427,7 @@ fun NotConnectedPlaceholder(state: HeadphonesState, modifier: Modifier = Modifie
         )
         Text(
             if (state.elsewhere != null) "In multipoint only one device can change these settings. Hush takes over when music plays on this phone, or from the Listen tab."
+            else if (state.phase == Phase.UPDATING) "Open Firmware to follow the installation. Other controls are paused until it finishes."
             else "Settings show up here once the control channel is open.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

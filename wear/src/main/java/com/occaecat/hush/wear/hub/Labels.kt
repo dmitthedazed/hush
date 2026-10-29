@@ -38,6 +38,7 @@ object WearLabels {
         Phase.CONNECTING -> "Connecting…"
         Phase.RECONNECTING -> s.reconnectReason ?: "Reconnecting…"
         Phase.FAILED -> "Couldn't connect"
+        Phase.UPDATING -> "Firmware update in progress"
         Phase.IDLE -> if (route == Route.PHONE && !phoneReachable) "Phone not reachable" else "Disconnected"
     }
 }

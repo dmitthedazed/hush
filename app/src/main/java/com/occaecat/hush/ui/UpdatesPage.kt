@@ -52,13 +52,19 @@ import androidx.compose.ui.unit.dp
 import com.occaecat.hush.HeadphonesState
 import com.occaecat.hush.update.AppUpdate
 import com.occaecat.hush.update.FirmwareCheck
+import com.occaecat.hush.update.JabraFirmware
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-/** State of Sony's firmware check for the connected headset; null fields until the headset reported its ids. */
+/** Vendor firmware checks remain separate; results belong to the selected device identity. */
 class FirmwareUi {
     var result by mutableStateOf<FirmwareCheck.Result?>(null)
+    var jabraResult by mutableStateOf<JabraFirmware.Manifest?>(null)
+    var installed by mutableStateOf<String?>(null)
+    var error by mutableStateOf<String?>(null)
     var checking by mutableStateOf(false)
     var failed by mutableStateOf(false)
+    var identity: String? = null
 }
 
 /** State of the GitHub release check for Hush itself. */
@@ -78,20 +84,17 @@ private fun HeadphonesState.fwInputs(): List<String>? {
     return listOf(category, service, model, fw)
 }
 
-/** Checks once per connection (Sony's file is cached 12 h); [FirmwareUi] drives the Updates row and page. */
+/** Checks when the verified device identity changes; server metadata is cached for 12 hours. */
 @Composable
 fun rememberFirmwareCheck(state: HeadphonesState): FirmwareUi {
     val context = LocalContext.current
     val ui = remember { FirmwareUi() }
     val inputs = state.fwInputs()
-    LaunchedEffect(inputs) {
-        ui.result = null; ui.checking = false; ui.failed = false
-        val (category, service, model, fw) = inputs ?: return@LaunchedEffect
-        ui.result = FirmwareCheck.cached(context, service)?.takeIf { it.current == fw }
-        ui.checking = true; ui.failed = false
-        runCatching { FirmwareCheck.check(context, category, service, model, fw, state.serial) }
-            .onSuccess { ui.result = it }.onFailure { ui.failed = ui.result == null }
-        ui.checking = false
+    LaunchedEffect(inputs, state.address, state.jabraProductId, state.firmware, state.serial) {
+        ui.identity = state.firmwareIdentity()
+        ui.result = null; ui.jabraResult = null; ui.checking = false; ui.failed = false; ui.error = null
+        ui.installed = state.firmware
+        ui.check(context, state, force = false)
     }
     return ui
 }
@@ -115,12 +118,26 @@ private suspend fun AppUpdateUi.check(context: android.content.Context, force: B
     checking = false
 }
 
-private suspend fun FirmwareUi.check(context: android.content.Context, state: HeadphonesState) {
-    val (category, service, model, fw) = state.fwInputs() ?: return
-    checking = true; failed = false
-    runCatching { FirmwareCheck.check(context, category, service, model, fw, state.serial, force = true) }
-        .onSuccess { result = it }.onFailure { failed = true }
-    checking = false
+private fun HeadphonesState.firmwareIdentity() = listOf(brand.name, address, jabraProductId, firmware, serial).joinToString("|")
+
+private suspend fun FirmwareUi.check(context: android.content.Context, state: HeadphonesState, force: Boolean = true) {
+    val key = state.firmwareIdentity()
+    if (identity != key) return
+    if (state.isJabra && state.jabraProductId == null || !state.isJabra && state.fwInputs() == null) return
+    checking = true; failed = false; error = null
+    try {
+        if (state.isJabra) {
+            val fetched = JabraFirmware.check(context, state.jabraProductId!!, force)
+            if (identity == key) jabraResult = fetched
+        } else {
+            val (category, service, model, fw) = state.fwInputs() ?: return
+            val fetched = FirmwareCheck.check(context, category, service, model, fw, state.serial, force)
+            if (identity == key) result = fetched
+        }
+    } catch (cancelled: CancellationException) { throw cancelled
+    } catch (failure: Exception) {
+        if (identity == key) { failed = true; error = failure.message ?: "Could not check firmware" }
+    } finally { if (identity == key) checking = false }
 }
 
 /** One line for the Updates row: what can be updated, otherwise that everything is current. */
@@ -128,30 +145,33 @@ fun updatesSummary(app: AppUpdateUi, fw: FirmwareUi): String {
     val pending = listOfNotNull(
         app.result.release?.version?.takeIf { app.result.available }?.let { "Hush $it" },
         fw.result?.takeIf { it.available }?.latest?.let { "firmware $it" },
+        fw.jabraResult?.takeIf { manifest -> fw.installed?.let { runCatching { manifest.available(it) }.getOrDefault(false) } == true }
+            ?.version?.let { "firmware $it" },
     )
     return when {
         pending.isNotEmpty() -> pending.joinToString(" and ").replaceFirstChar { it.uppercase() } + " available"
         app.checking || fw.checking -> "Checking…"
-        app.failed && !app.checked -> "Couldn't check"
+        app.failed && !app.checked || fw.failed -> "Couldn't check updates"
         else -> "Up to date · Hush ${app.result.installed}"
     }
 }
 
-/** Hush from GitHub and the headphones' firmware from Sony, on one page. */
+/** Hush from GitHub and the headphones' firmware from their manufacturer, on one page. */
 @Composable
 fun UpdatesPage(state: HeadphonesState, app: AppUpdateUi, fw: FirmwareUi, onClose: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     FullScreenPage("Updates", onClose) {
+        if (state.isJabra) {
+            SectionHeader("Headphones", top = Space.s)
+            JabraFirmwareSection(state, fw)
+        }
         SectionHeader("Hush", top = Space.s)
         AppSection(app)
-        SectionHeader("Headphones")
-        if (state.isJabra) {
-            Text("Installed firmware: ${state.firmware ?: "Unknown"}")
-            Text("Check and install headphone updates in Jabra Sound+.")
-            OutlinedButton(onClick = { openJabraSoundPlus(context) }) { Text("Open Jabra Sound+") }
-            OutlinedButton(onClick = { openUrl(context, com.occaecat.hush.features.Help.jabraSupportUrl(state.modelName ?: state.displayName)) }) { Text("Release notes and support") }
-        } else FirmwareSection(state, fw)
+        if (!state.isJabra) {
+            SectionHeader("Headphones")
+            FirmwareSection(state, fw)
+        }
         Spacer(Modifier.height(Space.l))
         OutlinedButton(
             enabled = !app.checking && !fw.checking,
@@ -364,11 +384,4 @@ private fun openSoundConnect(context: android.content.Context) {
     val launch = context.packageManager.getLaunchIntentForPackage(pkg)
         ?: Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg"))
     context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-}
-
-private fun openJabraSoundPlus(context: android.content.Context) {
-    val pkg = "com.jabra.moments"
-    val launch = context.packageManager.getLaunchIntentForPackage(pkg)
-        ?: Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$pkg"))
-    runCatching { context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }

@@ -9,6 +9,8 @@ object DeepLink {
     private val _target = MutableStateFlow<String?>(null)
     val target: StateFlow<String?> = _target
 
+    fun open(page: String) { _target.value = page }
+
     fun from(intent: Intent?) {
         intent?.getStringExtra("open")?.let { _target.value = it }
     }

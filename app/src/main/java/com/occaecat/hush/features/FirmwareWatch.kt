@@ -12,9 +12,11 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import com.occaecat.hush.HeadphonesController
+import com.occaecat.hush.HeadphonesState
 import com.occaecat.hush.R
 import com.occaecat.hush.update.AppUpdate
 import com.occaecat.hush.update.FirmwareCheck
+import com.occaecat.hush.update.JabraFirmware
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,10 +25,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
- * Weekly background check of Sony's update server for the last connected headset. The headset's ids (category,
- * service id, model, firmware, serial) are remembered while it is connected; a JobScheduler job (any network,
- * persisted across reboots) runs [FirmwareCheck] once a week and notifies once per new version. The same job checks
- * Hush's own GitHub releases ([AppUpdate]).
+ * Weekly manufacturer firmware check for the last verified headset identity. Sony update identifiers and
+ * Jabra product IDs stay separate; no downloads or installations run in this background job.
+ * The same job checks Hush's own GitHub releases ([AppUpdate]).
  */
 object FirmwareWatch {
     private const val JOB_ID = 4711
@@ -34,26 +35,38 @@ object FirmwareWatch {
     private const val APP_CHANNEL = "app_updates"
     private const val PREFS = "fw_watch"
 
+    private data class Target(val address: String?, val brand: String, val productId: Int?, val category: String?,
+                              val service: String?, val model: String?, val firmware: String?, val serial: String?)
+    private fun target(state: HeadphonesState) = Target(state.address, state.brand.name, state.jabraProductId,
+        state.updateInfo[2], state.updateInfo[3], state.modelName, state.firmware, state.serial)
+
     fun start(context: Context) {
         val app = context.applicationContext
         schedule(app)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         scope.launch {
             HeadphonesController.get(app).state
-                .map { if (it.isSony) listOf(it.updateInfo[2], it.updateInfo[3], it.modelName, it.firmware, it.serial) else emptyList() }
+                .map(::target)
                 .distinctUntilChanged()
-                .collect { values ->
-                    if (values.isEmpty()) {
-                        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                            .remove("category").remove("service").remove("model").remove("fw").remove("serial").remove("notified").apply()
+                .collect { target ->
+                    val preferences = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    val changed = preferences.getString("address", null) != target.address || preferences.getString("brand", "SONY") != target.brand
+                    if (changed || target.address == null) {
+                        preferences.edit().remove("category").remove("service").remove("model").remove("fw")
+                            .remove("serial").remove("productId").remove("notified")
+                            .putString("address", target.address).putString("brand", target.brand).apply()
                         app.getSystemService(NotificationManager::class.java).cancel(JOB_ID)
-                        return@collect
                     }
-                    val (category, service, model, fw, serial) = values
-                    if (category == null || service == null || model == null || fw == null) return@collect
-                    app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                        .putString("category", category).putString("service", service).putString("model", model)
-                        .putString("fw", fw).putString("serial", serial).apply()
+                    if (target.address == null || target.model == null || target.firmware == null) return@collect
+                    if (target.brand == "JABRA") {
+                        val pid = target.productId?.takeIf(JabraFirmware::supports) ?: return@collect
+                        preferences.edit().putInt("productId", pid).putString("model", target.model)
+                            .putString("fw", target.firmware).putString("brand", target.brand).apply()
+                    } else if (target.brand == "SONY" && target.category != null && target.service != null) {
+                        preferences.edit().putString("category", target.category).putString("service", target.service)
+                            .putString("model", target.model).putString("fw", target.firmware).putString("serial", target.serial)
+                            .putString("brand", target.brand).apply()
+                    }
                 }
         }
     }
@@ -101,6 +114,24 @@ object FirmwareWatch {
 
     private suspend fun checkFirmware(c: Context) {
         val p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (p.getString("brand", "SONY") == "JABRA") {
+            val pid = p.getInt("productId", 0).takeIf(JabraFirmware::supports) ?: return
+            val installed = p.getString("fw", null) ?: return
+            val address = p.getString("address", null) ?: return
+            val manifest = JabraFirmware.check(c, pid, force = true)
+            val identity = "jabra:$pid:${manifest.version}"
+            if (!manifest.available(installed) || p.getString("notified", null) == identity ||
+                p.getString("address", null) != address || p.getInt("productId", 0) != pid || p.getString("fw", null) != installed) return
+            p.edit().putString("notified", identity).apply()
+            val nm = c.getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(NotificationChannel(CHANNEL, "Firmware updates", NotificationManager.IMPORTANCE_DEFAULT))
+            nm.notify(JOB_ID, android.app.Notification.Builder(c, CHANNEL)
+                .setSmallIcon(R.drawable.ic_stat_headphones)
+                .setContentTitle("${manifest.productName}: firmware ${manifest.version} is available")
+                .setContentText("Installed $installed. Open Hush to review the update.")
+                .setContentIntent(openUpdates(c)).setAutoCancel(true).build())
+            return
+        }
         val category = p.getString("category", null) ?: return
         val service = p.getString("service", null) ?: return
         val model = p.getString("model", null) ?: return

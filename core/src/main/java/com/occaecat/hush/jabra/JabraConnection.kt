@@ -16,13 +16,13 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
@@ -36,8 +36,51 @@ internal interface GnpClient {
     suspend fun open()
     suspend fun read(topic: Int, payload: ByteArray = byteArrayOf()): ByteArray
     suspend fun write(topic: Int, payload: ByteArray)
+    suspend fun <T> firmwareSession(block: suspend (GnpFirmwareSession) -> T): T =
+        throw IOException("Firmware transfer is unavailable on this connection")
     fun close()
 }
+
+/** Exclusive commands and ordered update notifications; ordinary settings cannot interleave. */
+internal interface GnpFirmwareSession {
+    suspend fun read(topic: Int, payload: ByteArray = byteArrayOf(), timeoutMs: Long = 5_000): ByteArray
+    suspend fun writeStrict(topic: Int, payload: ByteArray = byteArrayOf(), timeoutMs: Long = 5_000)
+    suspend fun sendEvent(topic: Int, payload: ByteArray)
+    suspend fun receive(timeoutMs: Long): GnpFrame
+    fun requireNoPendingEvents()
+}
+
+/** A bounded inbox which reports overflow rather than silently discarding update credits. */
+internal class GnpFirmwareInbox(capacity: Int = 256) {
+    private val channel = Channel<GnpFrame>(capacity)
+    fun offer(frame: GnpFrame): Boolean = channel.trySend(frame).isSuccess
+    suspend fun receive(timeoutMs: Long): GnpFrame = withTimeoutOrNull(timeoutMs) { channel.receive() }
+        ?: throw IOException("Timed out waiting for a firmware notification")
+    fun requireEmpty() {
+        val result = channel.tryReceive()
+        if (result.isSuccess) throw IOException("Unexpected firmware notification between stages")
+        result.exceptionOrNull()?.let { throw IOException("Firmware session closed", it) }
+    }
+    fun close(error: Throwable) { channel.close(error) }
+    fun cancel() { channel.cancel() }
+}
+
+/** Cancellation must close the socket while its blocking write is still running. */
+internal suspend fun cancellableGnpWrite(scope: CoroutineScope, closeOnCancel: () -> Unit, write: () -> Unit) =
+    suspendCancellableCoroutine<Unit> { continuation ->
+        continuation.invokeOnCancellation { runCatching(closeOnCancel) }
+        val writer = scope.launch(Dispatchers.IO) {
+            try {
+                write()
+                if (continuation.isActive) continuation.resume(Unit)
+            } catch (e: Exception) {
+                if (continuation.isActive) continuation.resumeWithException(e)
+            }
+        }
+        writer.invokeOnCompletion { error ->
+            if (error != null && continuation.isActive) continuation.resumeWithException(error)
+        }
+    }
 
 internal class JabraRejectedException(val code: Int) : IOException("The headphones rejected this setting (GNP ${code.toString(16)})")
 
@@ -59,6 +102,7 @@ internal class JabraConnection(
     @Volatile private var stopped = false
     private var sequence = 0
     private var pending: Pair<GnpFrame, CompletableDeferred<GnpFrame>>? = null
+    private var firmwareEvents: GnpFirmwareInbox? = null
 
     init {
         // Closing the blocking socket must run when cancellation starts, before the reader exits.
@@ -142,6 +186,67 @@ internal class JabraConnection(
         Unit
     }
 
+    override suspend fun <T> firmwareSession(block: suspend (GnpFirmwareSession) -> T): T = requests.withLock {
+        // The reader never drops an update event: overflow terminates the session instead.
+        val queue = GnpFirmwareInbox()
+        synchronized(guard) {
+            if (stopped || socket == null) throw IOException("Jabra session closed")
+            check(firmwareEvents == null)
+            firmwareEvents = queue
+        }
+        var changedDevice = false
+        val session = object : GnpFirmwareSession {
+            private fun checkOwner() {
+                synchronized(guard) {
+                    if (stopped || firmwareEvents !== queue) throw IOException("Firmware session closed")
+                }
+            }
+            override suspend fun read(topic: Int, payload: ByteArray, timeoutMs: Long): ByteArray {
+                checkOwner()
+                return exchange(GnpFrame.READ, topic, payload, timeoutMs, required = true)!!.payload
+            }
+            override suspend fun writeStrict(topic: Int, payload: ByteArray, timeoutMs: Long) {
+                checkOwner()
+                changedDevice = true
+                val response = exchange(GnpFrame.WRITE, topic, payload, timeoutMs, required = true)!!
+                if (response.command != GnpFrame.ACK) throw IOException("Missing firmware command acknowledgement")
+            }
+            override suspend fun sendEvent(topic: Int, payload: ByteArray) {
+                checkOwner()
+                changedDevice = true
+                currentCoroutineContext().ensureActive()
+                val frame = synchronized(guard) {
+                    sequence = sequence % 255 + 1
+                    GnpFrame.request(sequence, GnpFrame.EVENT, topic, payload)
+                }
+                withTimeout(5_000) { sendFrame(frame) }
+            }
+            override suspend fun receive(timeoutMs: Long): GnpFrame {
+                checkOwner()
+                return queue.receive(timeoutMs)
+            }
+            override fun requireNoPendingEvents() {
+                checkOwner()
+                queue.requireEmpty()
+            }
+        }
+        try { block(session) } catch (e: Throwable) {
+            // Close before unlocking, so a waiting ordinary request cannot run after an aborted update.
+            if (changedDevice) finish(e)
+            throw e
+        } finally {
+            synchronized(guard) { if (firmwareEvents === queue) firmwareEvents = null }
+            queue.cancel()
+        }
+    }
+
+    private suspend fun sendFrame(frame: GnpFrame) = cancellableGnpWrite(scope, { finish(IOException("Jabra write cancelled")) }) {
+        val active = socket ?: throw IOException("Jabra session closed")
+        traceFrame("TX", frame)
+        active.outputStream.write(frame.encode())
+        active.outputStream.flush()
+    }
+
     private suspend fun exchange(kind: Int, topic: Int, payload: ByteArray, timeout: Long, required: Boolean): GnpFrame? {
         currentCoroutineContext().ensureActive()
         val result = CompletableDeferred<GnpFrame>()
@@ -151,13 +256,10 @@ internal class JabraConnection(
             GnpFrame.request(sequence, kind, topic, payload).also { pending = it to result }
         }
         try {
-            withContext(Dispatchers.IO) {
-                val active = socket ?: throw IOException("Jabra session closed")
-                traceFrame("TX", frame)
-                active.outputStream.write(frame.encode())
-                active.outputStream.flush()
+            val response = withTimeoutOrNull(timeout) {
+                sendFrame(frame)
+                result.await()
             }
-            val response = withTimeoutOrNull(timeout) { result.await() }
             if (response == null && required) throw IOException("Jabra did not answer topic ${topic.toString(16)}")
             return response
         } finally {
@@ -178,14 +280,20 @@ internal class JabraConnection(
                 parser.feed(buffer, count).forEach { frame ->
                     traceFrame("RX", frame)
                     val transaction = synchronized(guard) { pending }
-                    if (transaction != null && frame.acknowledges(transaction.first)) {
+                    val matched = transaction != null && frame.acknowledges(transaction.first)
+                    if (matched && transaction != null) {
                         when (frame.command) {
                             GnpFrame.NAK -> transaction.second.completeExceptionally(JabraRejectedException(frame.subcommand))
                             GnpFrame.ACK -> if (transaction.first.kind == GnpFrame.WRITE) transaction.second.complete(frame)
                             else -> transaction.second.complete(frame)
                         }
                     }
-                    if (frame.kind == GnpFrame.EVENT) notifications.tryEmit(frame)
+                    val updateQueue = synchronized(guard) { firmwareEvents }
+                    val updateNotification = !matched && (frame.command == 0x0f ||
+                        (frame.command == GnpFrame.NAK && frame.payload.size >= 5 && frame.payload[4].u() == 0x0f))
+                    if (updateQueue != null && updateNotification && frame.destination == 9 && frame.source == 4) {
+                        if (!updateQueue.offer(frame)) throw IOException("Firmware event queue overflow")
+                    } else if (frame.kind == GnpFrame.EVENT) notifications.tryEmit(frame)
                 }
             }
         } catch (e: Exception) { if (!stopped) failure = e
@@ -222,6 +330,7 @@ internal class JabraConnection(
             stopped = true
             pending?.second?.completeExceptionally(error ?: IOException("Jabra connection closed"))
             pending = null
+            firmwareEvents?.close(error ?: IOException("Jabra connection closed"))
             runCatching { socket?.close() }
             socket = null
         }

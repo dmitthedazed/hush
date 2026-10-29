@@ -198,6 +198,68 @@ class JabraBackendTest {
         assertFalse(backend.state.value.pauseWhenRemoved!!)
     }
 
+    @Test fun buttonMutationsOnDifferentSlotsAreSerializedWithoutBeingDroppedByRefresh() = withBackend { backend, fake ->
+        assertNull(backend.state.value.jabraButtons)
+        backend.refreshJabraButtons()
+        fake.writes.clear()
+        val leftSingle = JabraButtonSlot(JabraButtonContext.MUSIC, JabraButtonSide.LEFT, JabraButtonGesture.SINGLE)
+        val leftDouble = leftSingle.copy(gesture = JabraButtonGesture.DOUBLE)
+        val rightSingle = leftSingle.copy(side = JabraButtonSide.RIGHT)
+        val gate = CompletableDeferred<Unit>()
+        fake.blockNextWrite = gate
+        val first = launch(start = CoroutineStart.UNDISPATCHED) { backend.setJabraButton(leftSingle, 1) }
+        val second = launch(start = CoroutineStart.UNDISPATCHED) { backend.setJabraButton(leftDouble, 2) }
+        val third = launch(start = CoroutineStart.UNDISPATCHED) { backend.setJabraButton(rightSingle, 3) }
+        val refresh = launch(start = CoroutineStart.UNDISPATCHED) { backend.refreshJabraButtons() }
+        assertTrue(backend.state.value.jabraButtons!!.loading)
+        assertEquals(0, backend.state.value.jabraButtons!!.slots.first().action)
+        gate.complete(Unit)
+        listOf(first, second, third, refresh).forEach { it.join() }
+        assertEquals(listOf(0x139a, 0x139a, 0x139a), fake.writes.map { it.first })
+        val state = backend.state.value.jabraButtons!!
+        assertEquals(1, state.slots.single { it.slot == leftSingle }.action)
+        assertEquals(2, state.slots.single { it.slot == leftDouble }.action)
+        assertEquals(3, state.slots.single { it.slot == rightSingle }.action)
+        assertFalse(state.loading)
+        assertNull(state.error)
+    }
+
+    @Test fun buttonReadbackMismatchPublishesObservedAssignmentsAndErrorUntilRefresh() = withBackend { backend, fake ->
+        backend.refreshJabraButtons()
+        assertEquals(0, backend.state.value.jabraButtons!!.slots.first().action)
+        // Another controller changed the value after the page's last read.
+        fake.buttonRecords.getValue(0)[3] = 3
+        fake.applyWrites = false
+        val slot = JabraButtonSlot(JabraButtonContext.MUSIC, JabraButtonSide.LEFT, JabraButtonGesture.SINGLE)
+        assertTrue(runCatching { backend.setJabraButton(slot, 2) }.exceptionOrNull() is JabraButtonConfirmationException)
+        val state = backend.state.value.jabraButtons!!
+        assertEquals(3, state.slots.first().action)
+        assertNotNull(state.error)
+        assertFalse(state.loading)
+        assertFalse(state.canReset(JabraButtonContext.MUSIC))
+        backend.refreshJabraButtons()
+        assertEquals(3, backend.state.value.jabraButtons!!.slots.first().action)
+        assertNull(backend.state.value.jabraButtons!!.error)
+        assertNull(backend.state.value.error)
+    }
+
+    @Test fun buttonResetRemainsOrderedBetweenQueuedMutations() = withBackend { backend, fake ->
+        fake.writes.clear()
+        val music = JabraButtonSlot(JabraButtonContext.MUSIC, JabraButtonSide.LEFT, JabraButtonGesture.SINGLE)
+        val call = music.copy(context = JabraButtonContext.INCOMING_CALL)
+        val gate = CompletableDeferred<Unit>()
+        fake.blockNextWrite = gate
+        val first = launch(start = CoroutineStart.UNDISPATCHED) { backend.setJabraButton(music, 1) }
+        val reset = launch(start = CoroutineStart.UNDISPATCHED) { backend.resetJabraButtons(JabraButtonContext.MUSIC) }
+        val second = launch(start = CoroutineStart.UNDISPATCHED) { backend.setJabraButton(call, 6) }
+        gate.complete(Unit)
+        listOf(first, reset, second).forEach { it.join() }
+        assertEquals(listOf(0x139a, 0x139b, 0x139a), fake.writes.map { it.first })
+        val state = backend.state.value.jabraButtons!!
+        assertEquals(0, state.slots.single { it.slot == music }.action)
+        assertEquals(6, state.slots.single { it.slot == call }.action)
+    }
+
     private fun withBackend(fake: FakeGnp = FakeGnp(), body: suspend CoroutineScope.(JabraBackend, FakeGnp) -> Unit) = runBlocking {
         val owner = CoroutineScope(currentCoroutineContext() + SupervisorJob(currentCoroutineContext()[Job]))
         val backend = JabraBackend(fake, owner)
@@ -230,6 +292,11 @@ private class FakeGnp : GnpClient {
     var eventsRead = false
     val unsupported = mutableSetOf<Int>()
     val writes = mutableListOf<Pair<Int, ByteArray>>()
+    val buttonRecords = (0..2).associateWith { context ->
+        (0..1).flatMap { side -> (0..2).flatMap { gesture -> listOf(context, side, gesture, 0) } }
+            .map(Int::toByte).toByteArray()
+    }.toMutableMap()
+    private val buttonDefaults = buttonRecords.mapValues { it.value.copyOf() }
 
     override suspend fun open() = Unit
     override suspend fun read(topic: Int, payload: ByteArray): ByteArray {
@@ -259,6 +326,10 @@ private class FakeGnp : GnpClient {
             }
             JabraProtocol.SLEEP -> bytes(sleep)
             JabraProtocol.ANNOUNCEMENTS -> bytes(announcements)
+            0x13ad -> bytes(0, 1, 2)
+            0x139a -> buttonRecords.getValue(payload.single().u()).copyOf()
+            0x139b -> buttonDefaults.getValue(payload.single().u()).copyOf()
+            0x13e5, 0x0d4d -> bytes(0)
             0x138e -> bytes(0, pause)
             0x1383 -> bytes(pause)
             else -> throw IOException("Unexpected read ${topic.toString(16)}")
@@ -299,6 +370,12 @@ private class FakeGnp : GnpClient {
             }
             JabraProtocol.SLEEP -> sleep = payload.single().u()
             JabraProtocol.ANNOUNCEMENTS -> announcements = payload.single().u()
+            0x139a -> {
+                val records = buttonRecords.getValue(payload[0].u())
+                val at = records.indices.step(4).single { i -> (0..2).all { records[i + it] == payload[it] } }
+                records[at + 3] = payload[3]
+            }
+            0x139b -> buttonRecords[payload.single().u()] = buttonDefaults.getValue(payload.single().u()).copyOf()
             0x138e, 0x1383 -> pause = payload.last().u()
         }
     }

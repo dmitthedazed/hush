@@ -95,6 +95,7 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
     var guide by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var details by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var updates by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var jabraButtons by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val fw = rememberFirmwareCheck(state)
     val appUpdate = rememberAppUpdate()
     var page by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
@@ -130,6 +131,16 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
 
         if (connected) {
             // ---------------------------------------------------------------- buttons
+            if (state.isJabra) item {
+                Column(ItemWidth) {
+                    SectionHeader("Buttons", top = Space.s)
+                    SegmentedGroup {
+                        ValueRow(0, 1, Icons.Outlined.TouchApp, "Button controls", "Music and call assignments", enabled = !busy) {
+                            jabraButtons = true
+                        }
+                    }
+                }
+            }
             val touchGs = state.generalSettings.values
                 .filter { it.title != "MULTIPOINT_SETTING" && it.isBoolean && state.generalValues[it.id] != null }
                 .sortedBy { it.id }
@@ -277,6 +288,7 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
         }
     }
     DialogHost(dialogs)
+    if (jabraButtons) JabraButtonsPage(state, vm) { jabraButtons = false }
     if (guide) GuidePage(state) { guide = false }
     if (details) DeviceDetailsPage(state) { details = false }
     if (updates) UpdatesPage(state, appUpdate, fw) { updates = false }

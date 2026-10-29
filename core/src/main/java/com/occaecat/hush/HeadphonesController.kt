@@ -20,6 +20,12 @@ import com.occaecat.hush.mdr.Mdr
 import com.occaecat.hush.backend.HeadphoneBackend
 import com.occaecat.hush.backend.SonyBackend
 import com.occaecat.hush.jabra.JabraBackend
+import com.occaecat.hush.jabra.JabraButtonContext
+import com.occaecat.hush.jabra.JabraButtonSlot
+import com.occaecat.hush.jabra.JabraButtonState
+import com.occaecat.hush.jabra.JabraConnection
+import com.occaecat.hush.jabra.JabraProtocol
+import com.occaecat.hush.jabra.firmware.*
 import com.occaecat.hush.mdr.MdrEvent
 import com.occaecat.hush.mdr.NcAsmState
 import android.bluetooth.BluetoothDevice
@@ -42,7 +48,7 @@ data class PairedDevice(
     val brand: HeadphoneBrand = if (looksSony) HeadphoneBrand.SONY else HeadphoneBrand.UNKNOWN,
 )
 
-enum class Phase { IDLE, CONNECTING, CONNECTED, RECONNECTING, FAILED }
+enum class Phase { IDLE, CONNECTING, CONNECTED, RECONNECTING, FAILED, UPDATING }
 
 data class HeadphonesState(
     val brand: HeadphoneBrand = HeadphoneBrand.SONY,
@@ -51,6 +57,10 @@ data class HeadphonesState(
     val ancLevel: Int? = null,
     val sleepMinutes: Int? = null,
     val announcementMode: Int? = null,
+    val jabraProductId: Int? = null,
+    val jabraButtons: JabraButtonState? = null,
+    val jabraFirmwareReadiness: JabraFirmwareReadiness? = null,
+    val firmwareUpdate: JabraFirmwareUpdateState? = null,
     val phase: Phase = Phase.IDLE,
     val error: String? = null,
     /** Why we are in [Phase.RECONNECTING], e.g. "Applying Sound quality mode". */
@@ -136,6 +146,8 @@ class HeadphonesController private constructor(private val app: Application) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val prefs = app.getSharedPreferences("hush", Context.MODE_PRIVATE)
+    // An unfinished installation belongs to this phone, never to an Android cloud backup.
+    private val firmwareJournal = android.util.AtomicFile(java.io.File(app.noBackupFilesDir, "jabra-firmware-operation.json"))
     private val adapter = app.getSystemService(BluetoothManager::class.java)?.adapter
     private val audio = app.getSystemService(android.media.AudioManager::class.java)
 
@@ -145,7 +157,10 @@ class HeadphonesController private constructor(private val app: Application) {
     private fun savedState(): HeadphonesState {
         val address = prefs.getString("address", null)
         val brand = address?.let { resolveBrand(it) }?.takeIf { it != HeadphoneBrand.UNKNOWN } ?: HeadphoneBrand.SONY
+        val installation = restoreFirmwareUpdate()?.takeIf { it.address.equals(address, ignoreCase = true) }
         return HeadphonesState(address = address, brand = brand,
+            firmwareUpdate = installation,
+            phase = if (installation?.active == true) Phase.UPDATING else Phase.IDLE,
             capabilities = if (brand == HeadphoneBrand.SONY) DeviceCapabilities.SONY else DeviceCapabilities(),
             modelName = address?.let { prefs.getString("model:$it", null) })
     }
@@ -154,6 +169,7 @@ class HeadphonesController private constructor(private val app: Application) {
     private val connection: SonyBackend? get() = backend as? SonyBackend
     private val jabra: JabraBackend? get() = backend as? JabraBackend
     private var sessionJob: Job? = null
+    private var firmwareJob: Job? = null
     private val commandJobs = java.util.Collections.synchronizedSet(mutableSetOf<Job>())
 
     /** Last non-zero ambient level, restored when switching back to Ambient. */
@@ -169,6 +185,9 @@ class HeadphonesController private constructor(private val app: Application) {
     @Volatile var autoReconnect = true
 
     init {
+        if (_state.value.firmwareUpdate?.status == FirmwareUpdateStatus.AWAITING_CASE) {
+            firmwareJob = scope.launch { awaitFirmwareCaseCycle() }
+        }
         // Like Sound Connect's background receiver: when the headset's audio link comes back, reconnect.
         scope.launch {
             a2dp.connected.collect { up ->
@@ -230,6 +249,7 @@ class HeadphonesController private constructor(private val app: Application) {
 
     /** The user chose a headset in the app. */
     fun pick(address: String) {
+        if (_state.value.firmwareUpdate?.active == true) return
         onPick(address)
         connect(address)
     }
@@ -255,6 +275,8 @@ class HeadphonesController private constructor(private val app: Application) {
 
     @SuppressLint("MissingPermission")
     fun connect(address: String) {
+        if (_state.value.firmwareUpdate?.active == true) return
+        val installation = _state.value.firmwareUpdate?.takeIf { it.address.equals(address, ignoreCase = true) }
         disconnect()
         if (!hasBluetoothPermission()) {
             _state.update { it.copy(phase = Phase.FAILED, error = "Nearby devices permission is required") }
@@ -273,6 +295,7 @@ class HeadphonesController private constructor(private val app: Application) {
         _state.value = HeadphonesState(
             brand = brand, capabilities = if (brand == HeadphoneBrand.SONY) DeviceCapabilities.SONY else DeviceCapabilities(),
             phase = Phase.CONNECTING, paired = _state.value.paired, address = address, deviceName = device.alias ?: device.name,
+            firmwareUpdate = installation,
         )
         sessionJob = scope.launch { if (brand == HeadphoneBrand.JABRA) runJabraSession(device) else runSession(device) }
     }
@@ -305,6 +328,7 @@ class HeadphonesController private constructor(private val app: Application) {
                             phase = current.phase, paired = current.paired, address = current.address,
                             deviceName = current.deviceName, reconnectReason = current.reconnectReason,
                             volume = current.volume, volumeSteps = current.volumeSteps, playing = current.playing,
+                            firmwareUpdate = current.firmwareUpdate,
                         )
                     }
                 }
@@ -324,10 +348,11 @@ class HeadphonesController private constructor(private val app: Application) {
                     }
                 }
                 conn.closed.await()
+                if (_state.value.firmwareUpdate?.active == true) return@coroutineScope
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (backend === conn) _state.update {
+                if (backend === conn && _state.value.firmwareUpdate?.active != true) _state.update {
                     it.copy(phase = Phase.FAILED, error = e.message ?: "Could not connect to Jabra", reconnectReason = null)
                 }
                 return@coroutineScope
@@ -522,6 +547,7 @@ class HeadphonesController private constructor(private val app: Application) {
     }
 
     fun disconnect() {
+        if (_state.value.firmwareUpdate?.active == true) return
         sessionJob?.cancel()
         synchronized(commandJobs) { commandJobs.toList() }.forEach { it.cancel() }
         backend?.close()
@@ -536,6 +562,7 @@ class HeadphonesController private constructor(private val app: Application) {
     }
 
     fun forget() {
+        if (_state.value.firmwareUpdate?.active == true) return
         disconnect()
         prefs.edit().remove("address").apply()
         _state.update { HeadphonesState(paired = it.paired) }
@@ -554,7 +581,7 @@ class HeadphonesController private constructor(private val app: Application) {
         val owner = jabra ?: return
         if (_state.value.phase != Phase.CONNECTED) return
         scope.launch {
-            if (backend !== owner) return@launch
+            if (backend !== owner || _state.value.phase != Phase.CONNECTED) return@launch
             try { owner.action() }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) {
@@ -565,6 +592,184 @@ class HeadphonesController private constructor(private val app: Application) {
             job.invokeOnCompletion { commandJobs.remove(job) }
         }
     }
+
+    fun refreshJabraButtons() = jabraAction { refreshJabraButtons() }
+    fun setJabraButton(slot: JabraButtonSlot, action: Int) = jabraAction { setJabraButton(slot, action) }
+    fun resetJabraButtons(context: JabraButtonContext) = jabraAction { resetJabraButtons(context) }
+
+    suspend fun readJabraFirmwareReadiness(): JabraFirmwareReadiness {
+        val owner = jabra ?: error("Connect the Jabra headphones first")
+        check(_state.value.phase == Phase.CONNECTED) { "The headphones are busy" }
+        val result = owner.readFirmwareReadiness()
+        check(backend === owner && _state.value.phase == Phase.CONNECTED) { "The selected headphones changed" }
+        return result
+    }
+
+    /** Only the reviewed firmware screen calls this; generic commands cannot start an installation. */
+    fun startJabraFirmwareUpdate(firmware: JabraFirmwarePackage): Boolean {
+        val before = _state.value
+        val owner = jabra ?: return false
+        val address = before.address ?: return false
+        if (before.phase != Phase.CONNECTED || before.firmwareUpdate?.active == true ||
+            before.jabraProductId != firmware.productId ||
+            !JabraFirmwareUpdateState.isNewer(firmware.version, before.firmware ?: "")) return false
+        val operation = JabraFirmwareUpdateState(firmware.productId, firmware.version, address,
+            FirmwareUpdateStatus.TRANSFERRING)
+        // A synchronous journal commit must succeed before any erase/write is sent to the device.
+        if (!publishFirmwareUpdate(operation)) return false
+        synchronized(commandJobs) { commandJobs.toList() }.forEach { it.cancel() }
+        _state.update { it.copy(phase = Phase.UPDATING, error = null, jabraFirmwareReadiness = null) }
+        firmwareJob = scope.launch {
+            try {
+                owner.installFirmware(firmware) { progress ->
+                    val current = checkNotNull(_state.value.firmwareUpdate)
+                    check(current.matches(address, firmware.productId)) { "The update device changed" }
+                    val next = current.copy(progress = progress)
+                    if (current.progress?.stage != progress.stage || current.progress?.partition != progress.partition) {
+                        check(publishFirmwareUpdate(next)) { "Could not save firmware progress" }
+                    } else _state.update { it.copy(firmwareUpdate = next) }
+                }
+                check(publishFirmwareUpdate(operation.copy(status = FirmwareUpdateStatus.AWAITING_CASE,
+                    progress = JabraFirmwareProgress(JabraFirmwareStage.AWAITING_CASE, 100)))) {
+                    "The transfer completed, but its status could not be saved. Check the installed version."
+                }
+                closeFirmwareSession(owner)
+                awaitFirmwareCaseCycle()
+            } catch (e: CancellationException) {
+                if (_state.value.firmwareUpdate?.status == FirmwareUpdateStatus.TRANSFERRING) {
+                    publishFirmwareUpdate(checkNotNull(_state.value.firmwareUpdate).copy(
+                        status = FirmwareUpdateStatus.INTERRUPTED, error = "Transfer interrupted. Check the installed version before trying again."))
+                    _state.update { it.copy(phase = Phase.FAILED) }
+                }
+                closeFirmwareSession(owner)
+                throw e
+            } catch (e: Exception) {
+                publishFirmwareUpdate(checkNotNull(_state.value.firmwareUpdate).copy(
+                    status = FirmwareUpdateStatus.FAILED, error = e.message ?: "Firmware installation failed"))
+                _state.update { it.copy(phase = Phase.FAILED) }
+                closeFirmwareSession(owner)
+            }
+        }
+        return true
+    }
+
+    fun cancelJabraFirmwareUpdate() {
+        if (_state.value.firmwareUpdate?.canCancel != true) return
+        firmwareJob?.cancel()
+    }
+
+    fun dismissJabraFirmwareUpdate() {
+        if (_state.value.firmwareUpdate?.active == true) return
+        firmwareJournal.delete()
+        if (firmwareJournal.baseFile.exists()) {
+            _state.update { it.copy(firmwareUpdate = it.firmwareUpdate?.journalFailure()) }
+            return
+        }
+        _state.update { it.copy(firmwareUpdate = null) }
+    }
+
+    private fun closeFirmwareSession(owner: JabraBackend?) {
+        owner?.close()
+        if (owner != null && backend === owner) {
+            sessionJob?.cancel()
+            backend = null
+        }
+    }
+
+    /** Post-commit work is read-only. Never send GO, erase, or data again on reconnect. */
+    private suspend fun awaitFirmwareCaseCycle() {
+        val address = _state.value.firmwareUpdate?.address ?: return
+        var sawDisconnect = !a2dp.isConnected(address)
+        val deadline = android.os.SystemClock.elapsedRealtime() + 30 * 60_000L
+        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+            if (android.os.SystemClock.elapsedRealtime() >= deadline) {
+                _state.value.firmwareUpdate?.let { publishFirmwareUpdate(it.copy(status = FirmwareUpdateStatus.INTERRUPTED,
+                    error = "Installation has not been confirmed. Wait for the case light to finish, reconnect the earbuds, and check the installed version.")) }
+                _state.update { it.copy(phase = Phase.FAILED) }
+                return
+            }
+            if (!a2dp.isConnected(address)) sawDisconnect = true
+            if (sawDisconnect && a2dp.isConnected(address)) {
+                delay(A2DP_SETTLE_MS)
+                if (a2dp.isConnected(address) && verifyInstalledFirmware()) return
+                delay(25_000)
+            }
+            delay(5_000)
+        }
+    }
+
+    /** Explicit retry after the case LED has finished, including recovery after process death. */
+    fun verifyJabraFirmwareUpdate() {
+        val current = _state.value.firmwareUpdate ?: return
+        if (current.status == FirmwareUpdateStatus.TRANSFERRING || current.status == FirmwareUpdateStatus.SUCCEEDED) return
+        firmwareJob?.cancel()
+        sessionJob?.cancel()
+        backend?.close()
+        backend = null
+        firmwareJob = scope.launch { verifyInstalledFirmware(finalAttempt = true) }
+    }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun verifyInstalledFirmware(finalAttempt: Boolean = false): Boolean {
+        val operation = _state.value.firmwareUpdate ?: return false
+        if (!hasBluetoothPermission() || !a2dp.isConnected(operation.address)) {
+            publishFirmwareUpdate(operation.copy(status = if (finalAttempt) FirmwareUpdateStatus.INTERRUPTED else FirmwareUpdateStatus.AWAITING_CASE,
+                error = "Wait for the case LED to stop flashing, then reconnect the earbuds to check the installed version."))
+            if (finalAttempt) _state.update { it.copy(phase = Phase.FAILED) }
+            return false
+        }
+        _state.update { it.copy(phase = Phase.UPDATING) }
+        publishFirmwareUpdate(operation.copy(status = FirmwareUpdateStatus.VERIFYING, error = null))
+        val conn = JabraConnection(adapter!!.getRemoteDevice(operation.address), scope)
+        var confirmed = false
+        try {
+            conn.open()
+            val identity = JabraProtocol.model(conn.read(JabraProtocol.PRODUCT_ID))
+            val version = checkNotNull(JabraProtocol.text(conn.read(JabraProtocol.FIRMWARE))) { "The installed firmware version is unknown" }
+            check(operation.matches(_state.value.address ?: "", identity.productId)) { "The update device changed" }
+            confirmed = operation.confirms(operation.address, identity.productId, version)
+            if (confirmed) {
+                publishFirmwareUpdate(operation.copy(status = FirmwareUpdateStatus.SUCCEEDED, error = null))
+                _state.update { it.copy(phase = Phase.IDLE, firmware = version) }
+            } else {
+                publishFirmwareUpdate(operation.copy(status = if (finalAttempt) FirmwareUpdateStatus.FAILED else FirmwareUpdateStatus.AWAITING_CASE,
+                    error = "The headphones still report $version. Finish the case installation before checking again."))
+            }
+        } catch (e: CancellationException) { throw e
+        } catch (e: Exception) {
+            publishFirmwareUpdate(operation.copy(status = if (finalAttempt) FirmwareUpdateStatus.INTERRUPTED else FirmwareUpdateStatus.AWAITING_CASE,
+                error = e.message ?: "Could not read the installed firmware"))
+        } finally { conn.close() }
+        if (!confirmed && finalAttempt) _state.update { it.copy(phase = Phase.FAILED) }
+        if (confirmed) connect(operation.address)
+        return confirmed
+    }
+
+    private fun publishFirmwareUpdate(value: JabraFirmwareUpdateState): Boolean {
+        val json = org.json.JSONObject().put("productId", value.productId).put("targetVersion", value.targetVersion)
+            .put("address", value.address).put("status", value.status.name).put("error", value.error)
+        val saved = runCatching {
+            val bytes = json.toString().toByteArray(Charsets.UTF_8)
+            val stream = firmwareJournal.startWrite()
+            try {
+                stream.write(bytes)
+                stream.fd.sync()
+                firmwareJournal.finishWrite(stream)
+            } catch (e: Throwable) { firmwareJournal.failWrite(stream); throw e }
+            check(firmwareJournal.readFully().contentEquals(bytes)) { "Firmware journal was not committed" }
+        }.isSuccess
+        // Failure to journal cannot leave controls permanently trapped in an active state. The
+        // caller aborts writes; read-only version checking and explicit dismissal remain possible.
+        _state.update { it.copy(firmwareUpdate = if (saved) value else value.journalFailure()) }
+        return saved
+    }
+
+    private fun restoreFirmwareUpdate(): JabraFirmwareUpdateState? = runCatching {
+        val json = org.json.JSONObject(firmwareJournal.readFully().toString(Charsets.UTF_8))
+        JabraFirmwareUpdateState(json.getInt("productId"), json.getString("targetVersion"), json.getString("address"),
+            FirmwareUpdateStatus.valueOf(json.getString("status")), error = json.optString("error").takeIf { it.isNotEmpty() })
+            .afterRestart()
+    }.getOrNull()
 
     /** Side effects run once here; the [reduce] lambda may be retried by StateFlow.update and must stay pure. */
     private fun onEvent(e: MdrEvent) {
