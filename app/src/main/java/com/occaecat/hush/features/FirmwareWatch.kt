@@ -40,9 +40,16 @@ object FirmwareWatch {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         scope.launch {
             HeadphonesController.get(app).state
-                .map { listOf(it.updateInfo[2], it.updateInfo[3], it.modelName, it.firmware, it.serial) }
+                .map { if (it.isSony) listOf(it.updateInfo[2], it.updateInfo[3], it.modelName, it.firmware, it.serial) else emptyList() }
                 .distinctUntilChanged()
-                .collect { (category, service, model, fw, serial) ->
+                .collect { values ->
+                    if (values.isEmpty()) {
+                        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                            .remove("category").remove("service").remove("model").remove("fw").remove("serial").remove("notified").apply()
+                        app.getSystemService(NotificationManager::class.java).cancel(JOB_ID)
+                        return@collect
+                    }
+                    val (category, service, model, fw, serial) = values
                     if (category == null || service == null || model == null || fw == null) return@collect
                     app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                         .putString("category", category).putString("service", service).putString("model", model)

@@ -17,7 +17,9 @@ import com.occaecat.hush.mdr.GeneralSetting
 import com.occaecat.hush.mdr.OptimizerResult
 import com.occaecat.hush.mdr.SpeakToChatDetail
 import com.occaecat.hush.mdr.Mdr
-import com.occaecat.hush.mdr.MdrConnection
+import com.occaecat.hush.backend.HeadphoneBackend
+import com.occaecat.hush.backend.SonyBackend
+import com.occaecat.hush.jabra.JabraBackend
 import com.occaecat.hush.mdr.MdrEvent
 import com.occaecat.hush.mdr.NcAsmState
 import android.bluetooth.BluetoothDevice
@@ -33,12 +35,22 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 
-data class PairedDevice(val name: String, val address: String, val looksSony: Boolean)
+data class PairedDevice(
+    val name: String, val address: String, val looksSony: Boolean,
+    val brand: HeadphoneBrand = if (looksSony) HeadphoneBrand.SONY else HeadphoneBrand.UNKNOWN,
+)
 
 enum class Phase { IDLE, CONNECTING, CONNECTED, RECONNECTING, FAILED }
 
 data class HeadphonesState(
+    val brand: HeadphoneBrand = HeadphoneBrand.SONY,
+    val capabilities: DeviceCapabilities = DeviceCapabilities.SONY,
+    val batteries: List<BatteryComponent> = emptyList(),
+    val ancLevel: Int? = null,
+    val sleepMinutes: Int? = null,
+    val announcementMode: Int? = null,
     val phase: Phase = Phase.IDLE,
     val error: String? = null,
     /** Why we are in [Phase.RECONNECTING], e.g. "Applying Sound quality mode". */
@@ -108,6 +120,8 @@ data class HeadphonesState(
     /** Last connect/disconnect/unpair outcome, for a snackbar: (ResultType, address). */
     val peerResult: Pair<Int, String>? = null,
 ) {
+    val isSony: Boolean get() = brand == HeadphoneBrand.SONY
+    val isJabra: Boolean get() = brand == HeadphoneBrand.JABRA
     /** What to call the headset in the UI: the phone's own name for it first, then the model. */
     val displayName: String get() = deviceName ?: modelName ?: "Headphones"
 }
@@ -123,19 +137,31 @@ class HeadphonesController private constructor(private val app: Application) {
 
     private val prefs = app.getSharedPreferences("hush", Context.MODE_PRIVATE)
     private val adapter = app.getSystemService(BluetoothManager::class.java)?.adapter
+    private val audio = app.getSystemService(android.media.AudioManager::class.java)
 
-    private val _state = MutableStateFlow(HeadphonesState(address = prefs.getString("address", null)))
+    private val _state = MutableStateFlow(savedState())
     val state: StateFlow<HeadphonesState> = _state
 
-    private var connection: MdrConnection? = null
+    private fun savedState(): HeadphonesState {
+        val address = prefs.getString("address", null)
+        val brand = address?.let { resolveBrand(it) }?.takeIf { it != HeadphoneBrand.UNKNOWN } ?: HeadphoneBrand.SONY
+        return HeadphonesState(address = address, brand = brand,
+            capabilities = if (brand == HeadphoneBrand.SONY) DeviceCapabilities.SONY else DeviceCapabilities(),
+            modelName = address?.let { prefs.getString("model:$it", null) })
+    }
+
+    private var backend: HeadphoneBackend? = null
+    private val connection: SonyBackend? get() = backend as? SonyBackend
+    private val jabra: JabraBackend? get() = backend as? JabraBackend
     private var sessionJob: Job? = null
+    private val commandJobs = java.util.Collections.synchronizedSet(mutableSetOf<Job>())
 
     /** Last non-zero ambient level, restored when switching back to Ambient. */
     private var ambientLevel = 20
 
     /** Conflated outboxes so slider drags never queue up stale values. */
-    private val ncAsmOutbox = Channel<Pair<NcAsmState, Boolean>>(Channel.CONFLATED)
-    private val eqOutbox = Channel<ByteArray>(Channel.CONFLATED)
+    private val ncAsmOutbox = Channel<Triple<SonyBackend, NcAsmState, Boolean>>(Channel.CONFLATED)
+    private val eqOutbox = Channel<Pair<SonyBackend, ByteArray>>(Channel.CONFLATED)
 
     private val a2dp = A2dpWatcher(app).also { it.start() }
 
@@ -176,18 +202,21 @@ class HeadphonesController private constructor(private val app: Application) {
             if (android.os.Build.VERSION.SDK_INT >= 33) app.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
             else app.registerReceiver(receiver, filter)
         }
-        scope.launch { for ((s, dragging) in ncAsmOutbox) sendQuietly(Mdr.setNcAsm(s, dragging)) }
-        scope.launch { for (p in eqOutbox) sendQuietly(p) }
+        scope.launch { for ((owner, s, dragging) in ncAsmOutbox) if (backend === owner) sendQuietly(Mdr.setNcAsm(s, dragging)) }
+        scope.launch { for ((owner, p) in eqOutbox) if (backend === owner) sendQuietly(p) }
     }
 
     @SuppressLint("MissingPermission")
     fun refreshPaired() {
         val devices = runCatching { adapter?.bondedDevices.orEmpty() }.getOrDefault(emptySet())
         _state.update { s ->
-            s.copy(paired = devices.map {
+            s.copy(paired = devices.filterNot {
+                it.type == BluetoothDevice.DEVICE_TYPE_LE && resolveBrand(it.address, it.name, it.alias) == HeadphoneBrand.JABRA
+            }.map {
                 val name = it.alias ?: it.name ?: it.address
-                PairedDevice(name, it.address, name.startsWith("WH-") || name.startsWith("WF-") || name.contains("Sony", true))
-            }.sortedByDescending { it.looksSony })
+                val brand = resolveBrand(it.address, it.name, it.alias)
+                PairedDevice(name, it.address, brand == HeadphoneBrand.SONY, brand)
+            }.sortedByDescending { it.brand != HeadphoneBrand.UNKNOWN })
         }
     }
 
@@ -216,12 +245,9 @@ class HeadphonesController private constructor(private val app: Application) {
 
     /** NC → Ambient → Off → NC, the order the headset's own NC/AMB button uses. */
     fun cycleNoiseMode() {
-        val next = when (_state.value.ncAsm?.mode) {
-            AmbientMode.NOISE_CANCELLING -> AmbientMode.AMBIENT
-            AmbientMode.AMBIENT -> AmbientMode.OFF
-            else -> AmbientMode.NOISE_CANCELLING
-        }
-        setAmbientMode(next)
+        val modes = listOf(AmbientMode.NOISE_CANCELLING, AmbientMode.AMBIENT, AmbientMode.OFF)
+            .filter { it in _state.value.capabilities.noiseModes }
+        if (modes.isNotEmpty()) setAmbientMode(modes[(modes.indexOf(_state.value.ncAsm?.mode) + 1) % modes.size])
     }
 
     private fun hasBluetoothPermission() =
@@ -230,12 +256,89 @@ class HeadphonesController private constructor(private val app: Application) {
     @SuppressLint("MissingPermission")
     fun connect(address: String) {
         disconnect()
+        if (!hasBluetoothPermission()) {
+            _state.update { it.copy(phase = Phase.FAILED, error = "Nearby devices permission is required") }
+            return
+        }
         val device = adapter?.getRemoteDevice(address) ?: return
+        val detected = resolveBrand(address, device.name, device.alias)
+        if (detected == HeadphoneBrand.JABRA && device.type == BluetoothDevice.DEVICE_TYPE_LE) {
+            _state.update { it.copy(phase = Phase.FAILED, error = "Choose the Bluetooth audio entry for these Jabra headphones, not the LE entry") }
+            return
+        }
+        // Preserve the existing manual Sony connection path for names we cannot recognize.
+        val brand = if (detected == HeadphoneBrand.UNKNOWN) HeadphoneBrand.SONY else detected
         prefs.edit().putString("address", address).apply()
+        if (brand == HeadphoneBrand.SONY) prefs.edit().putString("brand:$address", brand.name).apply()
         _state.value = HeadphonesState(
+            brand = brand, capabilities = if (brand == HeadphoneBrand.SONY) DeviceCapabilities.SONY else DeviceCapabilities(),
             phase = Phase.CONNECTING, paired = _state.value.paired, address = address, deviceName = device.alias ?: device.name,
         )
-        sessionJob = scope.launch { runSession(device) }
+        sessionJob = scope.launch { if (brand == HeadphoneBrand.JABRA) runJabraSession(device) else runSession(device) }
+    }
+
+    private fun resolveBrand(address: String, vararg names: String?): HeadphoneBrand {
+        val detected = headphoneBrand(*names)
+        if (detected != HeadphoneBrand.UNKNOWN) return detected
+        return runCatching { HeadphoneBrand.valueOf(prefs.getString("brand:$address", "UNKNOWN")!!) }
+            .getOrDefault(HeadphoneBrand.UNKNOWN)
+    }
+
+    private suspend fun runJabraSession(device: BluetoothDevice) = coroutineScope {
+        var reconnect = false
+        while (isActive) {
+            if (reconnect) {
+                _state.update { it.copy(phase = Phase.RECONNECTING, reconnectReason = "Connection lost") }
+                if (!waitForA2dp(device.address, System.currentTimeMillis() + UNPLANNED_RECONNECT_MS)) {
+                    _state.update { it.copy(phase = Phase.FAILED, reconnectReason = null, error = "Headphones did not come back") }
+                    return@coroutineScope
+                }
+                delay(A2DP_SETTLE_MS)
+            }
+            val conn = JabraBackend(device, this,
+                debug = app.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0)
+            backend = conn
+            val collector = launch {
+                conn.state.collect { next ->
+                    if (backend === conn) _state.update { current ->
+                        next.copy(
+                            phase = current.phase, paired = current.paired, address = current.address,
+                            deviceName = current.deviceName, reconnectReason = current.reconnectReason,
+                            volume = current.volume, volumeSteps = current.volumeSteps, playing = current.playing,
+                        )
+                    }
+                }
+            }
+            var mediaJob: Job? = null
+            try {
+                conn.open()
+                conn.initialize()
+                if (backend !== conn) return@coroutineScope
+                prefs.edit().putString("brand:${device.address}", HeadphoneBrand.JABRA.name)
+                    .putString("model:${device.address}", conn.state.value.modelName).apply()
+                _state.update { it.copy(phase = Phase.CONNECTED, error = null, reconnectReason = null) }
+                mediaJob = launch {
+                    while (isActive) {
+                        refreshLocalPlayback()
+                        delay(1_000)
+                    }
+                }
+                conn.closed.await()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (backend === conn) _state.update {
+                    it.copy(phase = Phase.FAILED, error = e.message ?: "Could not connect to Jabra", reconnectReason = null)
+                }
+                return@coroutineScope
+            } finally {
+                mediaJob?.cancel()
+                collector.cancel()
+                conn.close()
+                if (backend === conn) backend = null
+            }
+            reconnect = true
+        }
     }
 
     /**
@@ -264,7 +367,7 @@ class HeadphonesController private constructor(private val app: Application) {
                 }
                 return@coroutineScope
             }
-            connection = conn
+            backend = conn
             val openedAt = System.currentTimeMillis()
             expectReconnectUntil = 0L
             _state.update { it.copy(phase = Phase.CONNECTED, error = null) }
@@ -276,7 +379,7 @@ class HeadphonesController private constructor(private val app: Application) {
             conn.closed.await()
             collector.cancel()
             init.cancel()
-            if (connection === conn) connection = null
+            if (backend === conn) backend = null
             conn.close()
             firstAttempt = false
             val planned = System.currentTimeMillis() < expectReconnectUntil
@@ -303,7 +406,7 @@ class HeadphonesController private constructor(private val app: Application) {
      * Sound Connect waits for A2DP CONNECTED before touching RFCOMM. On reconnects we do the same: wait for
      * the audio link (the XM4 drops it completely for e.g. a CUSTOM button change), let it settle, then open.
      */
-    private suspend fun openWithRetry(device: BluetoothDevice, windowMs: Long): MdrConnection? {
+    private suspend fun openWithRetry(device: BluetoothDevice, windowMs: Long): SonyBackend? {
         val deadline = System.currentTimeMillis() + windowMs
         if (windowMs > 0) delay(DROP_GRACE_MS) // let the headset finish tearing its links down
         while (true) {
@@ -314,9 +417,12 @@ class HeadphonesController private constructor(private val app: Application) {
                 delay(A2DP_SETTLE_MS)
                 if (!a2dp.isConnected(device.address)) continue
             }
-            val conn = MdrConnection(device, scope)
-            if (runCatching { conn.open() }.isSuccess) return conn
-            conn.close()
+            val conn = SonyBackend(device, scope)
+            backend = conn
+            try { conn.open(); return conn }
+            catch (e: CancellationException) { conn.close(); throw e }
+            catch (_: Exception) { conn.close() }
+            if (backend === conn) backend = null
             if (System.currentTimeMillis() >= deadline) return null
             delay(RETRY_DELAY_MS)
         }
@@ -330,31 +436,47 @@ class HeadphonesController private constructor(private val app: Application) {
         return false
     }
 
-    private suspend fun queryEverything() {
-        for (req in listOf(
-            Mdr.enableAlerts(),
-            Mdr.getProtocolInfo(), Mdr.getSupportFunction(), Mdr.getModelName(), Mdr.getFirmwareVersion(),
-            Mdr.getSeriesAndColor(), Mdr.getInstructionGuide(), Mdr.getSerialNumber(), Mdr.getBattery(),
-            *intArrayOf(2, 3, 4, 5, 7, 8, 9, 10, 11).map(Mdr::getUpdateParam).toTypedArray(),
-            Mdr.getCodec(), Mdr.getUpscalingEffect(), Mdr.getUpscalingSetting(), Mdr.getNcAsm(),
-            Mdr.getEqCapability(), Mdr.getEq(), Mdr.getSpeakToChat(), Mdr.getSpeakToChatDetail(),
-            Mdr.getWearingStatus(), Mdr.getPauseWhenRemoved(), Mdr.getAutoPowerOffCapability(),
-            Mdr.getAutoPowerOff(), Mdr.getCustomButton(), Mdr.getSoundQualityMode(),
-            Mdr.getOptimizerStatus(), Mdr.getOptimizerResult(),
-            Mdr.getGsCapability(0xD1), Mdr.getGsStatus(0xD1), Mdr.getGs(0xD1),
-            Mdr.getGsCapability(0xD2), Mdr.getGsStatus(0xD2), Mdr.getGs(0xD2),
-            Mdr.getGsCapability(0xD3), Mdr.getGsStatus(0xD3), Mdr.getGs(0xD3),
-        )) sendQuietly(req)
-        sendQuietly(Mdr.getVoiceGuidance(), table2 = true)
-        sendQuietly(Mdr.getVoiceGuidanceLanguage(), table2 = true)
-        for (req in listOf(Mdr.getPlayCapability(), Mdr.getPlayStatus(), Mdr.getPlayParam(0x20), Mdr.getPlayParam(0x00), Mdr.getPlayParam(0x02), Mdr.getPlayParam(0x01))) sendQuietly(req)
-        // Multipoint management: harmless if unsupported (the headset just doesn't answer).
-        sendQuietly(Mdr.getPeerStatus(), table2 = true)
-        sendQuietly(Mdr.getPeers(), table2 = true)
+    private suspend fun queryEverything() { connection?.initialize() }
+
+    private fun musicActive() = runCatching { audio.isMusicActive }.getOrDefault(false)
+
+    /** Do not change the speaker or a different headset's stream while controlling Jabra over multipoint. */
+    private fun isLocalAudioRoute(): Boolean = runCatching {
+        val address = _state.value.address ?: return false
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            audio.getAudioDevicesForAttributes(android.media.AudioAttributes.Builder()
+                .setUsage(android.media.AudioAttributes.USAGE_MEDIA).build()).any {
+                it.address.equals(address, ignoreCase = true) &&
+                    it.type in listOf(android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, android.media.AudioDeviceInfo.TYPE_BLE_HEADSET)
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            val route = app.getSystemService(android.media.MediaRouter::class.java)
+                .getSelectedRoute(android.media.MediaRouter.ROUTE_TYPE_LIVE_AUDIO)
+            val devices = audio.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
+                .filter { it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
+            route.deviceType == android.media.MediaRouter.RouteInfo.DEVICE_TYPE_BLUETOOTH &&
+                devices.singleOrNull()?.address.equals(address, ignoreCase = true)
+        }
+    }.getOrDefault(false)
+
+    private fun refreshLocalPlayback() {
+        if (!_state.value.isJabra || _state.value.phase != Phase.CONNECTED) return
+        if (!isLocalAudioRoute()) {
+            _state.update { it.copy(volume = null, playing = null) }
+            return
+        }
+        val stream = android.media.AudioManager.STREAM_MUSIC
+        _state.update { it.copy(volume = audio.getStreamVolume(stream), volumeSteps = audio.getStreamMaxVolume(stream) + 1,
+            playing = musicActive()) }
     }
 
-    private val audio = app.getSystemService(android.media.AudioManager::class.java)
-    private fun musicActive() = runCatching { audio.isMusicActive }.getOrDefault(false)
+    private fun localMediaKey(code: Int) {
+        if (_state.value.phase != Phase.CONNECTED || !isLocalAudioRoute()) return
+        audio.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, code))
+        audio.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, code))
+        refreshLocalPlayback()
+    }
 
     /** The other connected source from the headset's list (this phone is matched by its Bluetooth name). */
     @SuppressLint("MissingPermission")
@@ -401,9 +523,16 @@ class HeadphonesController private constructor(private val app: Application) {
 
     fun disconnect() {
         sessionJob?.cancel()
-        connection?.close()
-        connection = null
-        _state.update { it.copy(phase = Phase.IDLE) }
+        synchronized(commandJobs) { commandJobs.toList() }.forEach { it.cancel() }
+        backend?.close()
+        backend = null
+        playbackJob?.cancel()
+        settleJob?.cancel()
+        expectReconnectUntil = 0L
+        approvedAlerts.clear()
+        while (ncAsmOutbox.tryReceive().isSuccess) { /* Drop commands from the old session. */ }
+        while (eqOutbox.tryReceive().isSuccess) { }
+        _state.update { it.copy(phase = Phase.IDLE, audioSettling = false, reconnectReason = null) }
     }
 
     fun forget() {
@@ -412,9 +541,29 @@ class HeadphonesController private constructor(private val app: Application) {
         _state.update { HeadphonesState(paired = it.paired) }
     }
 
-    private suspend fun sendQuietly(payload: ByteArray, table2: Boolean = false) {
-        val conn = connection ?: return
-        runCatching { conn.send(payload, table2) }.onFailure { Log.w("Hush", "send failed", it) }
+    private suspend fun sendQuietly(payload: ByteArray, table2: Boolean = false, owner: SonyBackend? = connection) {
+        val conn = owner ?: return
+        if (backend !== conn) return
+        try { conn.send(payload, table2) }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { Log.w("Hush", "send failed", e) }
+    }
+
+    /** Capture ownership before launching: a delayed UI action must not target a replacement session. */
+    private fun jabraAction(action: suspend JabraBackend.() -> Unit) {
+        val owner = jabra ?: return
+        if (_state.value.phase != Phase.CONNECTED) return
+        scope.launch {
+            if (backend !== owner) return@launch
+            try { owner.action() }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (backend === owner) _state.update { it.copy(error = e.message ?: "The headphones did not confirm the change") }
+            }
+        }.also { job ->
+            commandJobs.add(job)
+            job.invokeOnCompletion { commandJobs.remove(job) }
+        }
     }
 
     /** Side effects run once here; the [reduce] lambda may be retried by StateFlow.update and must stay pure. */
@@ -499,16 +648,26 @@ class HeadphonesController private constructor(private val app: Application) {
     // ---- user actions ----
 
     private fun pushNcAsm(next: NcAsmState, dragging: Boolean = false) {
+        val owner = connection ?: return
+        if (!sonyReady()) return
         _state.update { it.copy(ncAsm = next) }
-        ncAsmOutbox.trySend(next to dragging)
+        ncAsmOutbox.trySend(Triple(owner, next, dragging))
     }
 
     fun setAmbientMode(mode: AmbientMode) {
+        if (mode !in _state.value.capabilities.noiseModes) return
+        if (_state.value.isJabra) { jabraAction { setMode(mode) }; return }
         val cur = _state.value.ncAsm ?: NcAsmState(AmbientMode.OFF, ambientLevel, false)
         pushNcAsm(cur.copy(mode = mode, ambientLevel = ambientLevel))
     }
 
     fun setAmbientLevel(level: Int, dragging: Boolean) {
+        val caps = _state.value.capabilities
+        if (!caps.ambientLevels) return
+        if (_state.value.isJabra) {
+            jabraAction { setAmbientLevel(level.coerceIn(caps.ambientMin, caps.ambientMax)) }
+            return
+        }
         val cur = _state.value.ncAsm ?: return
         ambientLevel = level.coerceAtLeast(1)
         pushNcAsm(cur.copy(mode = AmbientMode.AMBIENT, ambientLevel = ambientLevel), dragging)
@@ -516,19 +675,33 @@ class HeadphonesController private constructor(private val app: Application) {
 
     /** Mode, ambient level and voice focus in one command (automation profiles). */
     fun setNoiseControl(mode: AmbientMode, level: Int? = null, voiceFocus: Boolean? = null) {
+        if (mode !in _state.value.capabilities.noiseModes) return
+        if (_state.value.isJabra) {
+            val caps = _state.value.capabilities
+            jabraAction {
+                setMode(mode)
+                if (level != null && caps.ambientLevels) setAmbientLevel(level.coerceIn(caps.ambientMin, caps.ambientMax))
+            }
+            return
+        }
         val cur = _state.value.ncAsm ?: NcAsmState(AmbientMode.OFF, ambientLevel, false)
         level?.let { ambientLevel = it.coerceIn(1, 20) }
         pushNcAsm(cur.copy(mode = mode, ambientLevel = ambientLevel, voiceFocus = voiceFocus ?: cur.voiceFocus))
     }
 
     fun setVoiceFocus(on: Boolean) {
+        if (!_state.value.capabilities.voiceFocus) return
         val cur = _state.value.ncAsm ?: return
         pushNcAsm(cur.copy(voiceFocus = on))
     }
 
-    fun selectEqPreset(id: Int) {
+    fun selectEqPreset(id: Int, namespace: String = "sony-mdr") {
+        val owner = connection ?: return
+        if (!sonyReady() || namespace != "sony-mdr") return
+        val caps = _state.value.eqCaps ?: return
+        if (id !in caps.presets.map { it.id } && id != 0) return
         _state.update { it.copy(eq = it.eq?.copy(presetId = id) ?: EqState(id, emptyList())) }
-        eqOutbox.trySend(Mdr.setEqPreset(id))
+        eqOutbox.trySend(owner to Mdr.setEqPreset(id))
         // The headset answers with an EQ notify carrying that preset's band levels.
     }
 
@@ -538,61 +711,129 @@ class HeadphonesController private constructor(private val app: Application) {
      */
     fun setEqBand(index: Int, level: Int) {
         val eq = _state.value.eq ?: return
+        val caps = _state.value.eqCaps ?: return
         if (index !in eq.bands.indices) return
-        val bands = eq.bands.toMutableList().also { it[index] = level }
-        writeEqPreset(editTarget(eq.presetId), bands)
+        val spec = caps.bandSpecs.getOrNull(index) ?: return
+        if (_state.value.isJabra) {
+            jabraAction { setEqBand(index, level.coerceIn(spec.min, spec.max)) }
+            return
+        }
+        val bands = eq.bands.toMutableList().also { it[index] = level.coerceIn(spec.min, spec.max) }
+        applyEqBands(bands, caps.layoutId)
     }
 
     /** Writes every band at once into the active writable slot (AutoEq results, imported curves). */
-    fun applyEqBands(levels: List<Int>) {
-        val eq = _state.value.eq ?: return
-        writeEqPreset(editTarget(eq.presetId), levels)
+    fun applyEqBands(levels: List<Int>, layoutId: String? = null): Boolean {
+        val st = _state.value
+        val caps = st.eqCaps ?: return false
+        val eq = st.eq ?: return false
+        if (st.phase != Phase.CONNECTED || !caps.supports(levels)) return false
+        if (layoutId != caps.layoutId && !(layoutId == null && st.isSony)) return false
+        if (st.isJabra) {
+            if (jabra == null) return false
+            jabraAction { setEqBands(levels.toList(), enabled = true) }
+            return true
+        }
+        return writeEqPreset(editTarget(eq.presetId), levels, caps.layoutId)
     }
 
     /** Selects [presetId] and stores [levels] in it; only Manual and Custom 1–5 keep what is written. */
-    fun writeEqPreset(presetId: Int, levels: List<Int>) {
-        val n = _state.value.eq?.bands?.size?.takeIf { it > 0 } ?: return
-        if (levels.size != n) return
-        val bands = levels.map { it.coerceIn(0, 2 * EQ_FLAT) }
+    fun writeEqPreset(presetId: Int, levels: List<Int>, layoutId: String? = null): Boolean {
+        val owner = connection ?: return false
+        val caps = _state.value.eqCaps ?: return false
+        if (!sonyReady() || presetId !in WRITABLE_PRESETS || !caps.supports(levels)) return false
+        if (layoutId != null && layoutId != caps.layoutId) return false
+        val bands = levels.toList()
         _state.update { it.copy(eq = EqState(presetId, bands)) }
-        eqOutbox.trySend(Mdr.setEqBands(presetId, bands))
+        eqOutbox.trySend(owner to Mdr.setEqBands(presetId, bands))
+        return true
+    }
+
+    fun restoreEq(eq: EqState, layoutId: String, address: String? = null): Boolean {
+        val st = _state.value
+        if (address != null && address != st.address) return false
+        val caps = st.eqCaps ?: return false
+        if (layoutId != caps.layoutId || st.phase != Phase.CONNECTED) return false
+        if (st.isJabra) {
+            if (!caps.supports(eq.bands) || jabra == null) return false
+            jabraAction { setEqBands(eq.bands, enabled = eq.enabled) }
+            return true
+        }
+        if (eq.presetId in WRITABLE_PRESETS) return writeEqPreset(eq.presetId, eq.bands, layoutId)
+        if (eq.presetId !in caps.presets.map { it.id } && eq.presetId != 0) return false
+        selectEqPreset(eq.presetId)
+        return true
+    }
+
+    fun setEqEnabled(enabled: Boolean) {
+        if (_state.value.isJabra && _state.value.eqCaps?.supportsEnable == true) jabraAction { setEqEnabled(enabled) }
+        else if (_state.value.isSony) {
+            if (!enabled) selectEqPreset(0)
+            else selectEqPreset(CUSTOM_PRESET)
+        }
     }
 
     private fun editTarget(presetId: Int) = if (presetId in WRITABLE_PRESETS) presetId else CUSTOM_PRESET
 
     /** Sound Connect's Reset: every band of the active writable slot back to 0. */
     fun setEqFlat() {
-        val eq = _state.value.eq ?: return
-        if (eq.bands.isEmpty()) return
-        writeEqPreset(editTarget(eq.presetId), List(eq.bands.size) { EQ_FLAT })
+        val caps = _state.value.eqCaps ?: return
+        applyEqBands(caps.bandSpecs.map { it.neutral }, caps.layoutId)
+    }
+
+    private fun sonyReady() = _state.value.isSony && _state.value.phase == Phase.CONNECTED && connection != null
+
+    fun setAncLevel(level: Int) {
+        val max = _state.value.capabilities.ancMax
+        if (max > 0 && _state.value.isJabra) jabraAction { setAncLevel(level.coerceIn(0, max)) }
+    }
+
+    fun setSleepMinutes(minutes: Int) {
+        if (_state.value.sleepMinutes != null && minutes in listOf(0, 15, 30, 60, 120))
+            jabraAction { setSleepMinutes(minutes) }
+    }
+
+    fun setAnnouncementMode(mode: Int) {
+        if (_state.value.announcementMode != null && mode in 0..2) jabraAction { setAnnouncementMode(mode) }
     }
 
     fun setDsee(auto: Boolean) {
+        if (!sonyReady()) return
         _state.update { it.copy(dseeAuto = auto) }
-        scope.launch { sendQuietly(Mdr.setUpscaling(auto)) }
+        fire(Mdr.setUpscaling(auto))
     }
 
     fun setSpeakToChat(on: Boolean) {
+        if (!sonyReady()) return
         _state.update { it.copy(speakToChat = on) }
-        scope.launch { sendQuietly(Mdr.setSpeakToChat(on)) }
+        fire(Mdr.setSpeakToChat(on))
     }
 
     private fun fire(payload: ByteArray, table2: Boolean = false) {
-        scope.launch { sendQuietly(payload, table2) }
+        val owner = connection ?: return
+        if (!sonyReady()) return
+        scope.launch { if (backend === owner) sendQuietly(payload, table2) }
     }
 
     fun setSpeakToChatDetail(d: SpeakToChatDetail) {
+        if (!sonyReady()) return
         _state.update { it.copy(speakToChatDetail = d) }
         fire(Mdr.setSpeakToChatDetail(d))
     }
 
     fun setPauseWhenRemoved(on: Boolean) {
+        if (_state.value.isJabra) {
+            if (_state.value.pauseWhenRemoved != null) jabraAction { setPauseWhenRemoved(on) }
+            return
+        }
+        if (!sonyReady()) return
         _state.update { it.copy(pauseWhenRemoved = on) }
         fire(Mdr.setPauseWhenRemoved(on))
     }
 
     /** Sony keeps the last chosen timer as "selectTime" even while a non-timer option is active. */
     fun setAutoPowerOff(id: Int) {
+        if (!sonyReady()) return
         val prevSelect = _state.value.autoPowerOff?.second ?: id
         val select = if (id < 0x10) id else prevSelect
         _state.update { it.copy(autoPowerOff = id to select) }
@@ -603,29 +844,35 @@ class HeadphonesController private constructor(private val app: Application) {
     private val approvedAlerts = java.util.Collections.synchronizedSet(mutableSetOf<Int>())
 
     fun answerAlert(type: Int, positive: Boolean) {
+        if (!sonyReady()) return
+        val owner = connection ?: return
         _state.update { it.copy(alert = null) }
         if (positive && type in RECONNECTING_ALERTS) expectReconnect(ALERT_REASON[type] ?: "Applying the change")
         fire(Mdr.answerAlert(type, positive))
         // A declined change leaves the headset as it was; re-read so the UI drops its optimistic value.
         if (!positive) scope.launch {
-            sendQuietly(Mdr.getCustomButton()); sendQuietly(Mdr.getSoundQualityMode())
-            multipointId()?.let { sendQuietly(Mdr.getGs(it)) }
+            sendQuietly(Mdr.getCustomButton(), owner = owner)
+            sendQuietly(Mdr.getSoundQualityMode(), owner = owner)
+            if (backend === owner) multipointId()?.let { sendQuietly(Mdr.getGs(it), owner = owner) }
         }
     }
 
     fun setCustomButton(preset: Int) {
+        if (!sonyReady()) return
         _state.update { it.copy(customButton = preset) }
         approvedAlerts += AlertType.KEY_ASSIGN_CHANGE
         fire(Mdr.setCustomButton(preset))
     }
 
     fun setSoundQualityMode(preferConnection: Boolean) {
+        if (!sonyReady()) return
         _state.update { it.copy(soundQualityPreferConnection = preferConnection) }
         approvedAlerts += AlertType.CONNECTION_MODE_CHANGE
         fire(Mdr.setSoundQualityMode(preferConnection))
     }
 
     fun setGeneralSetting(id: Int, on: Boolean) {
+        if (!sonyReady()) return
         if (id == multipointId()) approvedAlerts += if (on) AlertType.MULTIPOINT_ON else AlertType.MULTIPOINT_OFF
         _state.update { it.copy(generalValues = it.generalValues + (id to on)) }
         fire(Mdr.setGs(id, on))
@@ -635,11 +882,13 @@ class HeadphonesController private constructor(private val app: Application) {
         _state.value.generalSettings.values.firstOrNull { it.title == "MULTIPOINT_SETTING" }?.id
 
     fun startOptimizer() {
+        if (!sonyReady()) return
         _state.update { it.copy(optimizerRunning = true) }
         fire(Mdr.startOptimizer())
     }
 
     fun cancelOptimizer() {
+        if (!sonyReady()) return
         _state.update { it.copy(optimizerRunning = false) }
         fire(Mdr.cancelOptimizer())
     }
@@ -647,17 +896,31 @@ class HeadphonesController private constructor(private val app: Application) {
     // ---- playback controller ----
 
     fun setVolume(v: Int) {
+        if (_state.value.isJabra) {
+            if (_state.value.phase != Phase.CONNECTED || !isLocalAudioRoute()) return
+            val stream = android.media.AudioManager.STREAM_MUSIC
+            audio.setStreamVolume(stream, v.coerceIn(audio.getStreamMinVolume(stream), audio.getStreamMaxVolume(stream)), 0)
+            refreshLocalPlayback()
+            return
+        }
+        if (!sonyReady()) return
         val c = v.coerceIn(0, _state.value.volumeSteps - 1)
         _state.update { it.copy(volume = c) }
         fire(Mdr.setVolume(c))
     }
     fun playPause() {
+        if (_state.value.isJabra) { localMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE); return }
+        if (!sonyReady()) return
         val playing = _state.value.playing == true
         _state.update { it.copy(playing = !playing) }
         fire(Mdr.playControl(if (playing) 0x01 else 0x07))
     }
-    fun nextTrack() = fire(Mdr.playControl(0x02))
-    fun previousTrack() = fire(Mdr.playControl(0x03))
+    fun nextTrack() {
+        if (_state.value.isJabra) localMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_NEXT) else fire(Mdr.playControl(0x02))
+    }
+    fun previousTrack() {
+        if (_state.value.isJabra) localMediaKey(android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS) else fire(Mdr.playControl(0x03))
+    }
 
     // ---- multipoint / pairing (table 2 peripheral) ----
 
@@ -667,9 +930,13 @@ class HeadphonesController private constructor(private val app: Application) {
      * follows the headset's notify (re-read shortly after) instead of being set optimistically.
      */
     fun setPairingMode(on: Boolean) {
+        if (!sonyReady()) return
+        val owner = connection ?: return
         scope.launch {
+            if (backend !== owner) return@launch
             sendQuietly(Mdr.setPairingMode(on), table2 = true)
             delay(1_500)
+            if (backend !== owner) return@launch
             sendQuietly(Mdr.getPeerStatus(), table2 = true)
         }
     }
@@ -679,13 +946,16 @@ class HeadphonesController private constructor(private val app: Application) {
     fun clearPeerResult() = _state.update { it.copy(peerResult = null) }
 
     private fun peer(action: Int, address: String) {
+        if (!sonyReady()) return
+        val owner = connection ?: return
         // Dropping the phone's own link is a reconnect, not a failure.
         if (action != 1 && address.equals(_state.value.address, ignoreCase = true)) expectReconnectUntil = System.currentTimeMillis() + 15_000
         fire(Mdr.peerAction(action, address), table2 = true)
-        scope.launch { delay(1_500); sendQuietly(Mdr.getPeers(), table2 = true) }
+        scope.launch { delay(1_500); if (backend === owner) sendQuietly(Mdr.getPeers(), table2 = true) }
     }
 
     fun setVoiceGuidance(on: Boolean) {
+        if (!sonyReady()) return
         _state.update { it.copy(voiceGuidance = on) }
         fire(Mdr.setVoiceGuidance(on), table2 = true)
     }
@@ -696,18 +966,23 @@ class HeadphonesController private constructor(private val app: Application) {
     private var emptyTitleRetries = 0
 
     private fun refreshPlayback(delayMs: Long = 150) {
+        val owner = connection ?: return
         playbackJob?.cancel()
         playbackJob = scope.launch {
             delay(delayMs)
-            for (t in listOf(0x00, 0x02, 0x01)) sendQuietly(Mdr.getPlayParam(t))
+            if (backend !== owner) return@launch
+            for (t in listOf(0x00, 0x02, 0x01)) sendQuietly(Mdr.getPlayParam(t), owner = owner)
             // The playing source may have moved to another multipoint device.
-            if (_state.value.peers != null) sendQuietly(Mdr.getPeers(), table2 = true)
+            if (_state.value.peers != null) sendQuietly(Mdr.getPeers(), table2 = true, owner = owner)
         }
     }
 
-    fun refreshBattery() = scope.launch { sendQuietly(Mdr.getBattery()) }
+    fun refreshBattery() {
+        if (_state.value.isJabra) jabraAction { refreshBattery() }
+        else fire(Mdr.getBattery())
+    }
 
-    fun powerOff() = scope.launch { sendQuietly(Mdr.powerOff()) }
+    fun powerOff() { if (_state.value.capabilities.powerOff) fire(Mdr.powerOff()) }
 
     companion object {
         @Volatile private var instance: HeadphonesController? = null

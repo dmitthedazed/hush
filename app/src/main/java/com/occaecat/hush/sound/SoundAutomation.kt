@@ -83,32 +83,57 @@ object SoundAutomation {
             }
         }
 
-        val ready = controller.state.map { it.phase == Phase.CONNECTED && it.ncAsm != null }.distinctUntilChanged()
+        val ready = controller.state.map { Triple(it.phase == Phase.CONNECTED && it.ncAsm != null, it.address, it.eqCaps?.layoutId) }.distinctUntilChanged()
         var applied: SoundAction? = null
         var baseline: EqState? = null // the EQ before automation first changed it, restored when no trigger wants one
+        var baselineAddress: String? = null
+        var baselineLayout: String? = null
+        // Device changes must invalidate restore points immediately, even when the debounce hides a short visit.
+        scope.launch {
+            controller.state.map { it.address }.distinctUntilChanged().collect { address ->
+                if (baselineAddress != address) {
+                    baseline = null
+                    applied = null
+                    baselineAddress = address
+                    baselineLayout = null
+                }
+            }
+        }
         scope.launch {
             combine(SoundStore.config, inputs, ready) { c, i, r -> Triple(c, i, r) }
                 .debounce(1_500)
-                .collect { (config, i, isReady) ->
-                    val (action, sources) = resolve(config, i)
+                .collect { (config, i, readyState) ->
+                    val (isReady, address, layout) = readyState
+                    if (baselineAddress != address || baselineLayout != layout) { baseline = null; applied = null }
+                    baselineAddress = address
+                    baselineLayout = layout
+                    val (requested, sources) = resolve(config, i)
+                    val current = controller.state.value
+                    var action = requested.copy(eq = requested.eq?.takeIf { canApplyEq(it, config, current.eqCaps) })
                     _status.value = Status(i, action, sources)
-                    if (!isReady) { applied = null; return@collect }
+                    if (!isReady || current.phase != Phase.CONNECTED || current.address != address || current.eqCaps?.layoutId != layout) {
+                        applied = null
+                        return@collect
+                    }
                     val last = applied
                     // Noise control: only when the wanted mode/level/voice actually changed.
-                    if (action.mode != null && (last?.mode != action.mode || last.ambientLevel != action.ambientLevel || last.voiceFocus != action.voiceFocus)) {
-                        if (action.mode == AmbientMode.AMBIENT) controller.setNoiseControl(action.mode, action.ambientLevel, action.voiceFocus)
-                        else controller.setNoiseControl(action.mode)
+                    if (action.mode != null && (last?.mode != action.mode || last.ambientLevel != action.ambientLevel || last.voiceFocus != action.voiceFocus || last.noiseNamespace != action.noiseNamespace || last.ambientMin != action.ambientMin || last.ambientMax != action.ambientMax)) {
+                        controller.applyNoise(action)
                     }
                     // EQ: apply a new choice; when the last choice goes away, put the user's EQ back.
                     if (action.eq != last?.eq) {
                         val eq = action.eq
                         if (eq != null) {
-                            if (last?.eq == null) baseline = controller.state.value.eq
-                            applyEq(controller, config, eq)
+                            val before = controller.state.value.eq
+                            if (applyEq(controller, config, eq)) {
+                                if (last?.eq == null) baseline = before
+                            } else {
+                                action = action.copy(eq = null)
+                                baseline = null
+                            }
                         } else {
                             baseline?.let { b ->
-                                if (b.presetId in HeadphonesController.WRITABLE_PRESETS && b.bands.isNotEmpty()) controller.writeEqPreset(b.presetId, b.bands)
-                                else controller.selectEqPreset(b.presetId)
+                                baselineLayout?.let { controller.restoreEq(b, it, baselineAddress) }
                             }
                             baseline = null
                         }
@@ -132,17 +157,20 @@ object SoundAutomation {
             mode = nc?.second?.mode,
             ambientLevel = nc?.second?.ambientLevel ?: 10,
             voiceFocus = nc?.second?.voiceFocus ?: false,
+            noiseNamespace = nc?.second?.noiseNamespace ?: "sony-mdr",
+            ambientMin = nc?.second?.ambientMin,
+            ambientMax = nc?.second?.ambientMax,
             eq = eq?.second?.eq,
         )
         return action to listOfNotNull(nc?.first, eq?.first).distinct()
     }
 
-    fun applyEq(controller: HeadphonesController, c: SoundConfig, eq: EqChoice) {
-        when (eq) {
-            is EqChoice.Preset -> controller.selectEqPreset(eq.id)
-            is EqChoice.Library -> c.library.firstOrNull { it.id == eq.id }?.let {
-                controller.writeEqPreset(HeadphonesController.CUSTOM_PRESET, it.levels)
-            }
+    fun applyEq(controller: HeadphonesController, c: SoundConfig, eq: EqChoice): Boolean {
+        val current = controller.state.value
+        if (current.phase != Phase.CONNECTED || !canApplyEq(eq, c, current.eqCaps)) return false
+        return when (eq) {
+            is EqChoice.Preset -> { controller.selectEqPreset(eq.id, eq.namespace); true }
+            is EqChoice.Library -> c.library.firstOrNull { it.id == eq.id }?.let(controller::applySavedEq) ?: false
         }
     }
 

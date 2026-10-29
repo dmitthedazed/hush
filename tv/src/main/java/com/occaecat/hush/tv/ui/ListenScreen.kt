@@ -70,6 +70,9 @@ fun SectionScaffold(title: String, content: LazyListScope.() -> Unit) {
 
 /** Connecting / failed / reconnecting states shared by every section. Returns true if the section has a session. */
 fun LazyListScope.sessionBanner(state: HeadphonesState, vm: HeadphonesController): Boolean {
+    if (state.phase == Phase.CONNECTED) state.error?.let { error ->
+        item { Banner(Icons.Outlined.Sync, "Could not apply setting", error) }
+    }
     if (state.phase == Phase.RECONNECTING || state.audioSettling) {
         item { Banner(Icons.Outlined.Sync, "Reconnecting", (state.reconnectReason ?: "Connection lost") + ". This takes a few seconds.") }
     }
@@ -119,24 +122,27 @@ fun ListenScreen(state: HeadphonesState, vm: HeadphonesController) {
             item { SectionHeader("Noise control") }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(Tv.Gap)) {
-                    ModeTile(Icons.Outlined.HearingDisabled, "Noise cancelling", nc.mode == AmbientMode.NOISE_CANCELLING, Modifier.weight(1f)) {
+                    if (AmbientMode.NOISE_CANCELLING in state.capabilities.noiseModes) ModeTile(Icons.Outlined.HearingDisabled, "Noise cancelling", nc.mode == AmbientMode.NOISE_CANCELLING, Modifier.weight(1f)) {
                         vm.setAmbientMode(AmbientMode.NOISE_CANCELLING)
                     }
-                    ModeTile(Icons.Outlined.Hearing, "Ambient sound", nc.mode == AmbientMode.AMBIENT, Modifier.weight(1f)) {
+                    if (AmbientMode.AMBIENT in state.capabilities.noiseModes) ModeTile(Icons.Outlined.Hearing, if (state.isJabra) "HearThrough" else "Ambient sound", nc.mode == AmbientMode.AMBIENT, Modifier.weight(1f)) {
                         vm.setAmbientMode(AmbientMode.AMBIENT)
                     }
-                    ModeTile(Icons.AutoMirrored.Outlined.VolumeOff, "Off", nc.mode == AmbientMode.OFF, Modifier.weight(1f)) {
+                    if (AmbientMode.OFF in state.capabilities.noiseModes) ModeTile(Icons.AutoMirrored.Outlined.VolumeOff, "Off", nc.mode == AmbientMode.OFF, Modifier.weight(1f)) {
                         vm.setAmbientMode(AmbientMode.OFF)
                     }
                 }
             }
+            if (nc.mode == AmbientMode.NOISE_CANCELLING && state.capabilities.ancMax > 0) state.ancLevel?.let { level ->
+                item { StepperRow(Icons.Outlined.HearingDisabled, "Noise cancelling strength", level, 0..state.capabilities.ancMax, onChange = vm::setAncLevel) }
+            }
             if (nc.mode == AmbientMode.AMBIENT) {
-                item(key = "level") {
-                    StepperRow(Icons.Outlined.Hearing, "Ambient sound level", nc.ambientLevel, 1..20) {
+                if (state.capabilities.ambientLevels) item(key = "level") {
+                    StepperRow(Icons.Outlined.Hearing, if (state.isJabra) "HearThrough level" else "Ambient sound level", nc.ambientLevel, state.capabilities.ambientMin..state.capabilities.ambientMax) {
                         vm.setAmbientLevel(it, dragging = false)
                     }
                 }
-                item(key = "focus") {
+                if (state.capabilities.voiceFocus) item(key = "focus") {
                     SwitchRow(
                         Icons.Outlined.RecordVoiceOver, "Focus on voice", "Let voices through, keep the noise down",
                         nc.voiceFocus, onCheckedChange = vm::setVoiceFocus,

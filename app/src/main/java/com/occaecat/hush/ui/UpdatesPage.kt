@@ -70,6 +70,7 @@ class AppUpdateUi(installed: String) {
 }
 
 private fun HeadphonesState.fwInputs(): List<String>? {
+    if (!isSony) return null
     val category = updateInfo[2] ?: return null
     val service = updateInfo[3] ?: return null
     val model = modelName ?: return null
@@ -84,6 +85,7 @@ fun rememberFirmwareCheck(state: HeadphonesState): FirmwareUi {
     val ui = remember { FirmwareUi() }
     val inputs = state.fwInputs()
     LaunchedEffect(inputs) {
+        ui.result = null; ui.checking = false; ui.failed = false
         val (category, service, model, fw) = inputs ?: return@LaunchedEffect
         ui.result = FirmwareCheck.cached(context, service)?.takeIf { it.current == fw }
         ui.checking = true; ui.failed = false
@@ -144,7 +146,12 @@ fun UpdatesPage(state: HeadphonesState, app: AppUpdateUi, fw: FirmwareUi, onClos
         SectionHeader("Hush", top = Space.s)
         AppSection(app)
         SectionHeader("Headphones")
-        FirmwareSection(state, fw)
+        if (state.isJabra) {
+            Text("Installed firmware: ${state.firmware ?: "Unknown"}")
+            Text("Check and install headphone updates in Jabra Sound+.")
+            OutlinedButton(onClick = { openJabraSoundPlus(context) }) { Text("Open Jabra Sound+") }
+            OutlinedButton(onClick = { openUrl(context, com.occaecat.hush.features.Help.jabraSupportUrl(state.modelName ?: state.displayName)) }) { Text("Release notes and support") }
+        } else FirmwareSection(state, fw)
         Spacer(Modifier.height(Space.l))
         OutlinedButton(
             enabled = !app.checking && !fw.checking,
@@ -357,4 +364,11 @@ private fun openSoundConnect(context: android.content.Context) {
     val launch = context.packageManager.getLaunchIntentForPackage(pkg)
         ?: Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg"))
     context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+}
+
+private fun openJabraSoundPlus(context: android.content.Context) {
+    val pkg = "com.jabra.moments"
+    val launch = context.packageManager.getLaunchIntentForPackage(pkg)
+        ?: Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$pkg"))
+    runCatching { context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }

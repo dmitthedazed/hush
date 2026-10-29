@@ -138,6 +138,10 @@ import com.occaecat.hush.sound.SoundAction
 import com.occaecat.hush.sound.SoundAutomation
 import com.occaecat.hush.sound.SoundConfig
 import com.occaecat.hush.sound.SoundStore
+import com.occaecat.hush.sound.applySavedEq
+import com.occaecat.hush.sound.compatibleLayout
+import com.occaecat.hush.sound.noiseNamespace
+import com.occaecat.hush.mdr.EqCapability
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -184,7 +188,7 @@ fun FullScreenPage(
 
 /** Six tiny bars around a centre line: the shape of an EQ curve at a glance. */
 @Composable
-fun EqShape(levels: List<Int>, modifier: Modifier, color: Color = MaterialTheme.colorScheme.primary) {
+fun EqShape(levels: List<Int>, modifier: Modifier, color: Color = MaterialTheme.colorScheme.primary, caps: EqCapability? = null) {
     Canvas(modifier) {
         val n = levels.size.coerceAtLeast(1)
         val gap = 4.dp.toPx()
@@ -192,8 +196,10 @@ fun EqShape(levels: List<Int>, modifier: Modifier, color: Color = MaterialTheme.
         val mid = size.height / 2
         drawLine(color.copy(alpha = 0.3f), Offset(0f, mid), Offset(size.width, mid), strokeWidth = 1.dp.toPx())
         levels.forEachIndexed { i, lv ->
-            val db = lv - 10
-            val h = (abs(db) / 10f * mid).coerceAtLeast(2.dp.toPx())
+            val spec = caps?.bandSpecs?.getOrNull(i)
+            val db = spec?.toDb(lv) ?: (lv - 10).toDouble()
+            val extent = spec?.let { maxOf(abs(it.toDb(it.min)), abs(it.toDb(it.max))) }?.coerceAtLeast(0.1) ?: 10.0
+            val h = (abs(db).toFloat() / extent.toFloat() * mid).coerceIn(2.dp.toPx(), mid)
             drawRoundRect(color, Offset(i * (w + gap), if (db >= 0) mid - h else mid), Size(w, h), CornerRadius(w / 2, w / 2))
         }
     }
@@ -251,12 +257,12 @@ fun splitPresets(presets: List<Pair<Int, String>>) =
 fun describe(action: SoundAction, config: SoundConfig, presets: List<Pair<Int, String>>): String {
     val nc = when (action.mode) {
         AmbientMode.NOISE_CANCELLING -> "Noise canceling"
-        AmbientMode.AMBIENT -> "Ambient ${action.ambientLevel}" + if (action.voiceFocus) " · voice" else ""
+        AmbientMode.AMBIENT -> if (action.noiseNamespace == "jabra-gnp") "HearThrough" else "Ambient ${action.ambientLevel}" + if (action.voiceFocus) " · voice" else ""
         AmbientMode.OFF -> "Noise control off"
         null -> null
     }
     val eq = when (val e = action.eq) {
-        is EqChoice.Preset -> presets.firstOrNull { it.first == e.id }?.second ?: Labels.presetNames[e.id]
+        is EqChoice.Preset -> presets.firstOrNull { it.first == e.id }?.second ?: if (e.namespace == "sony-mdr") Labels.presetNames[e.id] else null
         is EqChoice.Library -> config.library.firstOrNull { it.id == e.id }?.name
         null -> null
     }
@@ -285,6 +291,8 @@ fun ActionEditorSheet(
     onDone: (SoundAction?) -> Unit,
 ) {
     var action by remember { mutableStateOf(initial) }
+    val current by HeadphonesController.get(LocalContext.current).state.collectAsState()
+    val caps = current.eqCaps
     ModalBottomSheet(
         onDismissRequest = { onDone(action) },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -293,12 +301,17 @@ fun ActionEditorSheet(
         Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = Space.m).navigationBarsPadding()) {
             Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = Space.s))
             SectionHeader("Noise control", top = Space.m)
-            val modes = listOf<Pair<AmbientMode?, String>>(null to "Keep", AmbientMode.NOISE_CANCELLING to "ANC", AmbientMode.AMBIENT to "Ambient", AmbientMode.OFF to "Off")
+            val modes = listOf<Pair<AmbientMode?, String>>(null to "Keep", AmbientMode.NOISE_CANCELLING to "ANC",
+                AmbientMode.AMBIENT to if (current.isJabra) "HearThrough" else "Ambient", AmbientMode.OFF to "Off")
+                .filter { it.first == null || it.first in current.capabilities.noiseModes }
             Row(horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
                 modes.forEachIndexed { i, (m, label) ->
                     ToggleButton(
                         checked = action.mode == m,
-                        onCheckedChange = { action = action.copy(mode = m) },
+                        onCheckedChange = { action = action.copy(mode = m, noiseNamespace = current.noiseNamespace,
+                            ambientMin = current.capabilities.ambientMin, ambientMax = current.capabilities.ambientMax,
+                            ambientLevel = if (action.noiseNamespace == current.noiseNamespace) action.ambientLevel else current.ncAsm?.ambientLevel ?: current.capabilities.ambientMin,
+                            voiceFocus = action.voiceFocus && current.capabilities.voiceFocus) },
                         modifier = Modifier.weight(1f),
                         colors = sheetToggleColors(),
                         shapes = when (i) {
@@ -309,17 +322,20 @@ fun ActionEditorSheet(
                     ) { Text(label, maxLines = 1) }
                 }
             }
-            AnimatedVisibility(action.mode == AmbientMode.AMBIENT) {
+            AnimatedVisibility(action.mode == AmbientMode.AMBIENT && current.capabilities.ambientMax > current.capabilities.ambientMin) {
                 Column(Modifier.padding(top = Space.m)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Ambient level", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                         Text("${action.ambientLevel}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                     }
                     Slider(
-                        value = action.ambientLevel.toFloat(), onValueChange = { action = action.copy(ambientLevel = it.roundToInt()) },
-                        valueRange = 1f..20f, steps = 18, colors = quietSliderColors(),
+                        value = action.ambientLevel.coerceIn(current.capabilities.ambientMin, current.capabilities.ambientMax).toFloat(),
+                        onValueChange = { action = action.copy(ambientLevel = it.roundToInt(), noiseNamespace = current.noiseNamespace,
+                            ambientMin = current.capabilities.ambientMin, ambientMax = current.capabilities.ambientMax) },
+                        valueRange = current.capabilities.ambientMin.toFloat()..current.capabilities.ambientMax.toFloat(),
+                        steps = (current.capabilities.ambientMax - current.capabilities.ambientMin - 1).coerceAtLeast(0), colors = quietSliderColors(),
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (current.capabilities.voiceFocus) Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Focus on voice", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                         Switch(action.voiceFocus, { action = action.copy(voiceFocus = it) })
                     }
@@ -341,16 +357,16 @@ fun ActionEditorSheet(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s), verticalArrangement = Arrangement.spacedBy(Space.s)) {
                 Chip(null, "Keep")
             }
-            Text("Sony", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (sony.isNotEmpty()) Text("Factory presets", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = Space.s, top = Space.m, bottom = Space.s))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s), verticalArrangement = Arrangement.spacedBy(Space.s)) {
-                sony.forEach { (id, name) -> Chip(EqChoice.Preset(id), name) }
+                sony.forEach { (id, name) -> Chip(EqChoice.Preset(id, caps?.namespace ?: "sony-mdr"), name) }
             }
             Text("Yours", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = Space.s, top = Space.m, bottom = Space.s))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s), verticalArrangement = Arrangement.spacedBy(Space.s)) {
-                yours.forEach { (id, name) -> Chip(EqChoice.Preset(id), name) }
-                library.forEach { Chip(EqChoice.Library(it.id), it.name) }
+                yours.forEach { (id, name) -> Chip(EqChoice.Preset(id, caps?.namespace ?: "sony-mdr"), name) }
+                library.filter { it.compatibleLayout(caps) != null }.forEach { Chip(EqChoice.Library(it.id), it.name) }
             }
             Spacer(Modifier.height(Space.l))
             Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
@@ -370,6 +386,8 @@ fun ActionEditorSheet(
 fun EqLibraryPage(eq: EqState?, presets: List<Pair<Int, String>>, vm: HeadphonesController, onClose: () -> Unit) {
     val context = LocalContext.current
     val config by SoundStore.config.collectAsState()
+    val headset by vm.state.collectAsState()
+    val caps = headset.eqCaps
     var naming by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<SavedEq?>(null) }
@@ -379,8 +397,7 @@ fun EqLibraryPage(eq: EqState?, presets: List<Pair<Int, String>>, vm: Headphones
 
     FullScreenPage("EQ library", onClose) {
         Text(
-            "Keep as many equalizer curves as you like. The headphones only store Manual and two Custom slots; " +
-                "a library curve is written into one of them when you apply it.",
+            "Keep as many equalizer curves as you like. Compatible curves are applied to the connected headphones. Curves for other equalizers stay in your library.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = Space.s),
@@ -409,23 +426,24 @@ fun EqLibraryPage(eq: EqState?, presets: List<Pair<Int, String>>, vm: Headphones
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
             config.library.forEachIndexed { i, item ->
                 var menu by remember { mutableStateOf(false) }
-                val usable = item.levels.size == bandCount
+                val layout = item.compatibleLayout(caps)
+                val usable = layout != null
                 SegmentedListItem(
-                    onClick = { if (usable) vm.writeEqPreset(HeadphonesController.CUSTOM_PRESET, item.levels) },
+                    onClick = { if (usable) vm.applySavedEq(item) },
                     enabled = usable,
                     shapes = ListItemDefaults.segmentedShapes(index = i, count = config.library.size),
                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    leadingContent = { EqShape(item.levels, Modifier.size(width = 56.dp, height = 32.dp)) },
-                    supportingContent = { Text(item.source ?: "Tap to apply to Manual", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    leadingContent = { if (usable) EqShape(item.levels, Modifier.size(width = 56.dp, height = 32.dp), caps = caps) else LeadIcon(Icons.Outlined.Equalizer) },
+                    supportingContent = { Text(if (!usable) "For a different equalizer" else item.source ?: "Tap to apply", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     trailingContent = {
                         Box {
                             IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.Edit, "More") }
                             DropdownMenu(menu, { menu = false }) {
-                                listOf(0xA1, 0xA2).forEach { slot ->
+                                caps?.presets.orEmpty().map { it.id }.filter { headset.isSony && it in HeadphonesController.WRITABLE_PRESETS }.forEach { slot ->
                                     DropdownMenuItem(
                                         text = { Text("Save to ${Labels.presetNames[slot]}") },
                                         enabled = usable,
-                                        onClick = { menu = false; vm.writeEqPreset(slot, item.levels) },
+                                        onClick = { menu = false; if (layout != null) vm.writeEqPreset(slot, item.levels, layout) },
                                     )
                                 }
                                 DropdownMenuItem(text = { Text("Rename") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) },
@@ -451,7 +469,7 @@ fun EqLibraryPage(eq: EqState?, presets: List<Pair<Int, String>>, vm: Headphones
 
     if (naming && eq != null) NameDialog("Save current EQ", currentName, "Save") { name ->
         naming = false
-        if (name != null) SoundStore.saveEq(name, eq.bands, "Saved from $currentName")
+        if (name != null && caps != null) SoundStore.saveEq(name, eq.bands, "Saved from $currentName", caps.layoutId)
     }
     renaming?.let { item ->
         NameDialog("Rename", item.name, "Rename") { name -> renaming = null; if (name != null) SoundStore.renameEq(item.id, name) }
@@ -467,22 +485,23 @@ fun EqLibraryPage(eq: EqState?, presets: List<Pair<Int, String>>, vm: Headphones
     }
     if (importing) {
         var text by remember { mutableStateOf("") }
-        val parsed = SoundStore.parseCode(text, bandCount)
+        val parsed = SoundStore.parseCode(text)
         AlertDialog(
             onDismissRequest = { importing = false },
             title = { Text("Import EQ code") },
             text = {
                 Column {
-                    Text("Paste a code shared from Hush (HUSHEQ1:…).", style = MaterialTheme.typography.bodyMedium)
+                    Text("Paste a code shared from Hush (HUSHEQ1 or HUSHEQ2).", style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(Space.s))
                     OutlinedTextField(text, { text = it }, minLines = 2, isError = text.isNotBlank() && parsed == null)
                     if (text.isNotBlank() && parsed == null) {
-                        Text("Not a valid code for these headphones", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        Text("Not a valid Hush EQ code", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
+                    if (parsed != null && parsed.compatibleLayout(caps) == null) Text("This curve will be saved for its original equalizer.", style = MaterialTheme.typography.bodySmall)
                 }
             },
             confirmButton = {
-                TextButton(onClick = { parsed?.let { (name, lv) -> SoundStore.saveEq(name, lv, "Imported") }; importing = false }, enabled = parsed != null) {
+                TextButton(onClick = { parsed?.let { SoundStore.saveEq(it.name, it.levels, "Imported", it.layoutId) }; importing = false }, enabled = parsed != null) {
                     Text("Import")
                 }
             },
@@ -821,20 +840,27 @@ private fun AppPickerSheet(exclude: Set<String>, onDismiss: () -> Unit, onPick: 
 fun HearingTestPage(vm: HeadphonesController, onClose: () -> Unit) {
     val scope = rememberCoroutineScope()
     val original = remember { vm.state.value.eq }
+    val originalAddress = remember { vm.state.value.address }
+    val originalLayout = remember { vm.state.value.eqCaps?.layoutId }
+    fun sameDevice() = vm.state.value.isSony && vm.state.value.address == originalAddress && vm.state.value.eqCaps?.layoutId == originalLayout
     var step by remember { mutableIntStateOf(-1) } // -1 intro, 0..5 tones, 6 result
     val heard = remember { mutableStateMapOf<Int, Double>() }
     var level by remember { mutableStateOf(HearingTest.START_DB) }
     var job by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val headset by vm.state.collectAsState()
+    LaunchedEffect(headset.address, headset.eqCaps?.layoutId) {
+        if (!sameDevice()) { job?.cancel(); onClose() }
+    }
     val result = if (step >= HearingTest.tones.size) HearingTest.levels(heard) else null
 
     fun restoreEq() {
         val o = original ?: return
-        if (o.presetId in HeadphonesController.WRITABLE_PRESETS && o.bands.isNotEmpty()) vm.writeEqPreset(o.presetId, o.bands)
-        else vm.selectEqPreset(o.presetId)
+        originalLayout?.let { vm.restoreEq(o, it, originalAddress) }
     }
 
     fun playStep(i: Int) {
         job?.cancel()
+        if (!sameDevice()) { onClose(); return }
         step = i
         if (i >= HearingTest.tones.size) return
         val tone = HearingTest.tones[i]
@@ -859,7 +885,7 @@ fun HearingTestPage(vm: HeadphonesController, onClose: () -> Unit) {
                 when {
                     step < 0 -> Button(onClick = {
                         // Test against a flat headset: EQ off, so the tones aren't shaped by a preset.
-                        vm.selectEqPreset(0x00)
+                        if (sameDevice()) vm.selectEqPreset(0x00)
                         playStep(0)
                     }, modifier = Modifier.weight(1f).height(56.dp)) { Text("Start") }
                     step < HearingTest.tones.size -> {
@@ -873,8 +899,8 @@ fun HearingTestPage(vm: HeadphonesController, onClose: () -> Unit) {
                         OutlinedButton(onClick = { heard.clear(); playStep(0) }, modifier = Modifier.weight(1f).height(56.dp)) { Text("Retry") }
                         Button(onClick = {
                             result?.let {
-                                vm.writeEqPreset(HeadphonesController.CUSTOM_PRESET, it)
-                                SoundStore.saveEq("Hearing test", it, "Hearing test · " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date()))
+                                if (sameDevice() && vm.writeEqPreset(HeadphonesController.CUSTOM_PRESET, it, originalLayout))
+                                    SoundStore.saveEq("Hearing test", it, "Hearing test · " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date()), originalLayout!!)
                             }
                             close(true)
                         }, modifier = Modifier.weight(1f).height(56.dp)) { Text("Apply") }

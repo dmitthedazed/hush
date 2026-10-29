@@ -7,7 +7,7 @@
         android:shortcutShortLabel="@string/shortcut_chatgpt">
         <intent
             android:action="com.occaecat.hush.ASK"
-            android:targetPackage="com.occaecat.hush"
+            android:targetPackage="@string/hush_application_id"
             android:targetClass="com.occaecat.hush.assistant.VoiceCommandActivity">
             <extra android:name="who" android:value="CHATGPT" />
         </intent>
@@ -19,7 +19,7 @@
         android:shortcutShortLabel="@string/shortcut_claude">
         <intent
             android:action="com.occaecat.hush.ASK"
-            android:targetPackage="com.occaecat.hush"
+            android:targetPackage="@string/hush_application_id"
             android:targetClass="com.occaecat.hush.assistant.VoiceCommandActivity">
             <extra android:name="who" android:value="CLAUDE" />
         </intent>

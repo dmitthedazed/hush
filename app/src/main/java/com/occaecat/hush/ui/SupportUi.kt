@@ -97,13 +97,18 @@ private val ArticleIcons = mapOf(
 fun HelpPage(state: HeadphonesState, onGuide: () -> Unit, onTour: () -> Unit, onClose: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val model = state.modelName ?: "WH-1000XM4"
+    val model = state.modelName ?: state.displayName
     var opening by remember { mutableStateOf<Help.Article?>(null) }
     FullScreenPage("Help", onClose) {
+        if (state.isJabra) {
+            Text("Manuals, pairing help and firmware release notes for $model.")
+            OutlinedButton(onClick = { Help.openUrl(context, Help.jabraSupportUrl(model)) }) { Text("Open Jabra support") }
+            return@FullScreenPage
+        }
         Surface(onClick = { Help.openHelpGuide(context, model) }, modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer) {
             Row(Modifier.padding(Space.l), verticalAlignment = Alignment.CenterVertically) {
-                Image(painterResource(renderFor(state.modelColor)), null, Modifier.size(64.dp), contentScale = ContentScale.Fit)
+                Image(painterResource(renderFor(state)), null, Modifier.size(64.dp), contentScale = ContentScale.Fit)
                 Spacer(Modifier.width(Space.m))
                 Column {
                     Text("$model Help Guide", style = MaterialTheme.typography.titleLargeEmphasized)
@@ -134,7 +139,11 @@ fun HelpPage(state: HeadphonesState, onGuide: () -> Unit, onTour: () -> Unit, on
 
 /** Opens one help article from anywhere (the "controls are elsewhere" card, the not-connected placeholder). */
 fun openHelpArticle(context: Context, state: HeadphonesState, article: Help.Article, scope: kotlinx.coroutines.CoroutineScope) {
-    scope.launch { Help.open(context, state.modelName ?: "WH-1000XM4", state.firmware, article) }
+    if (state.isJabra) {
+        Help.openUrl(context, Help.jabraSupportUrl(state.modelName ?: state.displayName))
+        return
+    }
+    scope.launch { Help.open(context, state.modelName ?: state.displayName, state.firmware, article) }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -239,7 +248,7 @@ fun TourHost(state: HeadphonesState) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("hush", Context.MODE_PRIVATE) }
     var done by remember { mutableStateOf(prefs.getBoolean("tour_done", false)) }
-    if (done || state.phase != Phase.CONNECTED || state.guideCategories.isNullOrEmpty()) return
+    if (!state.capabilities.vendorGuide || done || state.phase != Phase.CONNECTED || state.guideCategories.isNullOrEmpty()) return
     TourPage(state) {
         prefs.edit().putBoolean("tour_done", true).apply()
         done = true
@@ -248,6 +257,7 @@ fun TourHost(state: HeadphonesState) {
 
 @Composable
 fun TourPage(state: HeadphonesState, onClose: () -> Unit) {
+    if (!state.capabilities.vendorGuide) { HelpPage(state, {}, {}, onClose); return }
     val model = state.modelName ?: state.deviceName ?: "WH-1000XM4"
     val topics by produceState<List<InstructionGuide.Topic>?>(null, model) {
         value = runCatching { InstructionGuide.load(model, state.guideCategories, state.firmware) }.getOrNull().orEmpty()
@@ -270,7 +280,7 @@ fun TourPage(state: HeadphonesState, onClose: () -> Unit) {
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Space.m)) {
                         if (page == 0) {
                             Spacer(Modifier.height(Space.xl))
-                            Image(painterResource(renderFor(state.modelColor)), null, Modifier.fillMaxWidth().height(260.dp), contentScale = ContentScale.Fit)
+                            Image(painterResource(renderFor(state)), null, Modifier.fillMaxWidth().height(260.dp), contentScale = ContentScale.Fit)
                             Spacer(Modifier.height(Space.l))
                             Text("Get to know your $model", style = MaterialTheme.typography.headlineMediumEmphasized)
                             Spacer(Modifier.height(Space.s))

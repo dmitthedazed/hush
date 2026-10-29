@@ -18,6 +18,7 @@ object Concierge {
 
     /** Blocking; call from Dispatchers.IO. Null when Sony has nothing for this model. */
     fun resolve(model: String, actionType: String, screen: String, directId: String?, firmware: String?, locale: Locale = Locale.getDefault()): String? {
+        if (model.contains("Jabra", ignoreCase = true)) return null
         val country = locale.country.ifEmpty { "US" }
         val meta = JSONObject().put("actionType", actionType).put("screenId", screen)
             .put("deviceBtConnectStatus", "CONNECTED").put("targetModelName", model)
@@ -51,6 +52,7 @@ object Concierge {
 
     /** Sony's full Help Guide for a model ("WH-1000XM4" → helpguide.sony.net/mdr/wh1000xm4/v1/<lang>/). */
     fun helpGuideUrl(model: String, locale: Locale = Locale.getDefault()): String {
+        if (model.contains("Jabra", ignoreCase = true)) return Help.jabraSupportUrl(model)
         val slug = model.lowercase().replace("-", "").replace(" ", "")
         val lang = when (locale.language) {
             "en", "ru", "de", "fr", "es", "it", "nl", "pt", "sv", "fi", "ja", "ko", "tr", "pl", "cs", "uk" -> locale.language

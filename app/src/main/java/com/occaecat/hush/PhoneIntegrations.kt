@@ -83,6 +83,7 @@ object PhoneIntegrations {
         val s = controller.state.value
         if (s.phase != Phase.CONNECTED) return@launch
         LiveAlerts.connected(app, headsetName(controller), s.battery)
+        if (BuildConfig.ISOLATED_TEST_BUILD) return@launch
         app.sendBroadcast(
             Intent("com.occaecat.hush.action.SHOW_CONNECT_CARD")
                 .setPackage("com.heytap.accessory")

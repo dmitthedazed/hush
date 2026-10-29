@@ -74,7 +74,8 @@ class HushService : Service() {
             !s.connected -> "Disconnected"
             else -> listOfNotNull(
                 s.battery?.let { "$it%" + if (s.charging) " · charging" else "" },
-                s.mode?.let(::modeLabel),
+                s.mode?.let { if (s.brand == HeadphoneBrand.JABRA && it == AmbientMode.AMBIENT) "HearThrough" else modeLabel(it) },
+                s.components.takeIf { it.isNotEmpty() }?.joinToString(" \u00b7 ") { "${it.label} ${it.level?.let { n -> "$n%" } ?: "Unknown"}" },
             ).joinToString(" · ")
         }
         val panel = PendingIntent.getActivity(
@@ -83,7 +84,7 @@ class HushService : Service() {
         )
         val builder = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_headphones)
-            .setLargeIcon(Icon.createWithResource(this, R.drawable.card_xm4))
+            .setLargeIcon(Icon.createWithResource(this, if (s.brand == HeadphoneBrand.JABRA) R.drawable.earbuds else R.drawable.card_xm4))
             .setContentTitle(s.name ?: "Headphones")
             .setContentText(status)
             .setStyle(Notification.BigTextStyle().bigText(status))
@@ -94,7 +95,7 @@ class HushService : Service() {
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setCategory(Notification.CATEGORY_STATUS)
         if (s.connected) {
-            for (mode in AmbientMode.entries) {
+            for (mode in s.noiseModes) {
                 val pi = PendingIntent.getService(
                     this, mode.ordinal + 1,
                     Intent(this, HushService::class.java).putExtra(EXTRA_MODE, mode.name),
@@ -103,7 +104,7 @@ class HushService : Service() {
                 // Short labels: the Fluid Cloud card gives each button about a third of its width.
                 val label = when (mode) {
                     AmbientMode.NOISE_CANCELLING -> "NC"
-                    AmbientMode.AMBIENT -> "Ambient"
+                    AmbientMode.AMBIENT -> if (s.brand == HeadphoneBrand.JABRA) "HearThrough" else "Ambient"
                     AmbientMode.OFF -> "Off"
                 }
                 builder.addAction(Notification.Action.Builder(null, label, pi).build())

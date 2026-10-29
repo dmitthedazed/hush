@@ -6,7 +6,7 @@
 
 **Liberate your headphones from vendor apps.**
 
-No accounts, no tracking, no shady software. Sony MDR v1/v2 and Apple EarPods (USB-C) for now, more brands soon.
+No accounts, no tracking, no shady software. Sony MDR v1/v2, experimental Jabra Elite 10 / Elite 85t support, and Apple EarPods (USB-C).
 
 [![Release](https://img.shields.io/github/v/release/dmitthedazed/hush?style=flat-square&color=d6d07a)](https://github.com/dmitthedazed/hush/releases/latest)
 ![Android 12+](https://img.shields.io/badge/Android-12%2B-3ddc84?style=flat-square&logo=android&logoColor=white)
@@ -33,10 +33,13 @@ Headphone makers ship heavy apps that want an account, log what you do and still
 | --- | --- | --- |
 | Sony | MDR v1 | Tested on WH-1000XM4 |
 | Sony | MDR v2 | Fully implemented, needs testers |
+| Jabra | GNP | Elite 10 (original), firmware 4.6.0, and Elite 85t, firmware 2.0.0: hardware tested; experimental firmware coverage |
 | Apple | USB audio | EarPods (USB-C): equalizer on the phone, remote, authenticity check |
 | More brands | | Soon |
 
-Got Sony headphones on MDR v2, or something else? Try Hush and [report how it went](https://github.com/dmitthedazed/hush/issues/new/choose), that's the fastest way to get them supported.
+Got Sony headphones on MDR v2, a Jabra Elite 10 or Elite 85t, or something else? Try Hush and [report how it went](https://github.com/dmitthedazed/hush/issues/new/choose), that's the fastest way to get them supported.
+
+Features depend on the connected model. Jabra supports noise modes and available strengths, five-band hardware EQ, earbud/case battery, automatic pause, sleep timeout, and announcements. Elite 85t also supports EQ bypass; Elite 10 firmware 4.6.0 exposes editable EQ without bypass. See the [tested controls and remaining limits](docs/JABRA.md#evidence-tests-and-hardware-acceptance).
 
 ## Listen
 
@@ -81,12 +84,12 @@ Home-screen widgets, a Quick Settings tile, a live notification with mode button
 
 1. Download `hush-<version>-phone.apk` from the [latest release](https://github.com/dmitthedazed/hush/releases/latest). Use `-wear` for the watch and `-tv` for Android TV.
 2. Pair the headphones in Android's Bluetooth settings, open Hush and pick them.
-3. Close the vendor app (for Sony, Sound Connect). The headphones talk to one app at a time.
+3. Close the vendor app (Sony Sound Connect or Jabra Sound+). The headphones talk to one app at a time.
 
 Builds are signed with a development key, so Android asks once about an unknown developer. After that Hush updates itself from GitHub releases (Device → About → Updates).
 
 > [!NOTE]
-> Tested on a Sony WH-1000XM4 (firmware 3.0.1) with a realme phone on ColorOS 16.
+> Tested on a Sony WH-1000XM4 (firmware 3.0.1) with a realme phone on ColorOS 16, and on Jabra Elite 10 (4.6.0) / Elite 85t (2.0.0) with a Pixel 10. Jabra test coverage is documented in [docs/JABRA.md](docs/JABRA.md).
 
 <details>
 <summary>How it works</summary>
@@ -94,6 +97,8 @@ Builds are signed with a development key, so Android asks once about an unknown 
 For Sony, Hush opens the headphones' RFCOMM control channel and speaks the MDR protocol: frames, ACKs, command tables 1 and 2. Sony's cloud features are reached the way Sound Connect reaches them: the Concierge service for tutorials and help, the model catalogue for per-colour renders, and `info.update.sony.net` for firmware.
 
 All of it is written up, with pointers into the decompiled Sound Connect 13.3.0, in [docs/NOTES.md](docs/NOTES.md).
+
+Jabra support uses an independently implemented Bluetooth Classic GNP backend. It covers ANC/HearThrough/Off, available strength controls, hardware EQ, earbud/case battery, auto-pause, sleep timeout and announcements. Protocol evidence, limitations and the hardware acceptance checklist are in [docs/JABRA.md](docs/JABRA.md). Firmware installation stays with Sound+. Elite 10 Gen 2 and other Jabra models are not yet supported.
 
 </details>
 
@@ -106,6 +111,8 @@ Needs JDK 21. Minimum Android 12 (API 31).
 ./gradlew :app:assembleRelease    # phone; also :wear and :tv
 ./gradlew testDebugUnitTest
 ```
+
+For a phone debug build that installs alongside the normal app, use `./gradlew :app:assembleDebug -PhushTestApplicationId=com.occaecat.hush.jabratest`. The optional [ADB hardware-test provider](docs/JABRA.md#optional-hardware-test-build) is included only in debug builds and restricts calls to the shell, root, and the app itself.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 

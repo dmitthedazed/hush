@@ -1,7 +1,22 @@
 package com.occaecat.hush.ui
 
+import com.occaecat.hush.HeadphonesState
+
 /** User-facing wording, following Sound Connect's strings where it has them. */
 object Labels {
+    private fun separatesToPause(state: HeadphonesState) =
+        state.isJabra && state.modelName?.contains("85t", ignoreCase = true) == true
+
+    fun autoPauseTitle(state: HeadphonesState) =
+        if (separatesToPause(state)) "Auto-pause" else "Pause when taken off"
+
+    fun autoPauseSupporting(state: HeadphonesState) = when {
+        !state.pauseWhenRemovedAvailable -> "Not available right now"
+        separatesToPause(state) -> "Pause when the earbuds are separated; bring them together to resume."
+        state.isJabra -> "Pause when an earbud is removed; put it back to resume."
+        else -> "Resume when you put them back on"
+    }
+
     val presetNames = mapOf(
         0x00 to "Off", 0x01 to "Rock", 0x02 to "Pop", 0x03 to "Jazz", 0x04 to "Dance", 0x05 to "EDM",
         0x06 to "R&B/Hip-Hop", 0x07 to "Acoustic", 0x10 to "Bright", 0x11 to "Excited", 0x12 to "Mellow",

@@ -53,6 +53,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -160,24 +161,26 @@ fun FindYourEqDialog(vm: HeadphonesController, onDone: (saved: Boolean) -> Unit)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val original = remember { vm.state.value.eq }
+    val originalAddress = remember { vm.state.value.address }
+    val originalLayout = remember { vm.state.value.eqCaps?.layoutId }
+    fun sameDevice() = vm.state.value.isSony && vm.state.value.address == originalAddress && vm.state.value.eqCaps?.layoutId == originalLayout
     var stage by remember { mutableStateOf(FyeStage.INTRO) }
     var oldCustom2 by remember { mutableStateOf<List<Int>?>(null) }
     var first by remember { mutableStateOf<Fye.Pick?>(null) }
     var second by remember { mutableStateOf<Fye.Pick?>(null) }
     var after by remember { mutableStateOf(true) }
+    val headset by vm.state.collectAsState()
+    LaunchedEffect(headset.address, headset.eqCaps?.layoutId) { if (!sameDevice()) onDone(false) }
 
     val tuned = first?.let { f -> second?.let { Fye.secondRound(f)[it] } }
 
-    fun audition(c: Fye.Candidate) = vm.writeEqPreset(HeadphonesController.USER_PRESET_2, c.levels)
+    fun audition(c: Fye.Candidate): Boolean = sameDevice() && vm.writeEqPreset(HeadphonesController.USER_PRESET_2, c.levels, originalLayout)
 
     fun restore(original: EqState?) {
-        oldCustom2?.let { vm.writeEqPreset(HeadphonesController.USER_PRESET_2, it) }
+        if (!sameDevice()) return
+        oldCustom2?.let { vm.writeEqPreset(HeadphonesController.USER_PRESET_2, it, originalLayout) }
         val o = original ?: return
-        when {
-            o.presetId == HeadphonesController.USER_PRESET_2 -> {} // its old levels were just written back
-            o.presetId in HeadphonesController.WRITABLE_PRESETS && o.bands.isNotEmpty() -> vm.writeEqPreset(o.presetId, o.bands)
-            else -> vm.selectEqPreset(o.presetId)
-        }
+        originalLayout?.let { vm.restoreEq(o, it, originalAddress) }
     }
 
     fun cancel() {
@@ -186,6 +189,7 @@ fun FindYourEqDialog(vm: HeadphonesController, onDone: (saved: Boolean) -> Unit)
     }
 
     fun start() {
+        if (!sameDevice()) { onDone(false); return }
         stage = FyeStage.PREPARING
         scope.launch {
             // Remember what Custom 2 holds now so a cancelled run can put it back.
@@ -198,6 +202,7 @@ fun FindYourEqDialog(vm: HeadphonesController, onDone: (saved: Boolean) -> Unit)
                 (got?.eq ?: vm.state.value.eq)?.bands
             }
             first = Fye.Pick.ORG
+            if (!sameDevice()) { onDone(false); return@launch }
             audition(Fye.firstRound.getValue(Fye.Pick.ORG))
             stage = FyeStage.ROUND_1
         }
@@ -303,10 +308,10 @@ fun FindYourEqDialog(vm: HeadphonesController, onDone: (saved: Boolean) -> Unit)
                             Button(
                                 onClick = {
                                     tuned?.let {
-                                        audition(it) // saves into Custom 2 and leaves it selected
-                                        com.occaecat.hush.sound.SoundStore.saveEq(
+                                        if (audition(it)) com.occaecat.hush.sound.SoundStore.saveEq(
                                             "Find Your Equalizer", it.levels,
                                             "Find Your Equalizer · " + java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date()),
+                                            originalLayout ?: com.occaecat.hush.sound.legacySonyLayout(it.levels.size),
                                         )
                                     }
                                     onDone(true)

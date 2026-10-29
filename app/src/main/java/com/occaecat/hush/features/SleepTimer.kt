@@ -36,6 +36,8 @@ object SleepTimer {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var job: Job? = null
+    private var deviceJob: Job? = null
+    private var targetAddress: String? = null
     private const val FADE_MS = 45_000L
 
     fun powerOffWhenDone(c: Context) = c.getSharedPreferences("sleep", Context.MODE_PRIVATE).getBoolean("powerOff", true)
@@ -43,18 +45,21 @@ object SleepTimer {
 
     fun start(context: Context, minutes: Int) {
         cancel()
+        targetAddress = HeadphonesController.get(context).state.value.address
         val endsAt = System.currentTimeMillis() + minutes * 60_000L
         _state.value = State.Counting(endsAt)
         job = scope.launch {
             delay((endsAt - System.currentTimeMillis() - FADE_MS).coerceAtLeast(0))
             finish(context)
         }
+        watchDevice(HeadphonesController.get(context))
     }
 
     fun startEndOfTrack(context: Context) {
         cancel()
         _state.value = State.EndOfTrack
         val controller = HeadphonesController.get(context)
+        targetAddress = controller.state.value.address
         job = scope.launch {
             // Either source of the title may report the change first: the media session or the headset itself.
             val session = NowPlaying.media.map { it?.title }.distinctUntilChanged().drop(1)
@@ -62,6 +67,7 @@ object SleepTimer {
             kotlinx.coroutines.flow.merge(session, headset).first()
             finish(context, fade = false)
         }
+        watchDevice(controller)
     }
 
     /** Adds minutes to a running timer (the "+15" chip). */
@@ -73,26 +79,44 @@ object SleepTimer {
     fun cancel() {
         job?.cancel()
         job = null
+        deviceJob?.cancel()
+        deviceJob = null
+        targetAddress = null
         _state.value = State.Off
+    }
+
+    private fun watchDevice(controller: HeadphonesController) {
+        if (_state.value == State.Off) return
+        val address = targetAddress
+        deviceJob = scope.launch {
+            controller.state.map { it.address }.distinctUntilChanged().first { it != address }
+            cancel()
+        }
     }
 
     private suspend fun finish(context: Context, fade: Boolean = true) {
         val controller = HeadphonesController.get(context)
+        fun targetActive(): Boolean = controller.state.value.let {
+            it.address == targetAddress && it.phase == Phase.CONNECTED && (!it.isJabra || it.volume != null)
+        }
+        if (!targetActive()) { cancel(); return }
         val start = controller.state.value.volume
         _state.value = State.Fading
         if (fade && start != null && start > 0) {
             val steps = start
             for (i in 1..steps) {
                 delay(FADE_MS / steps)
+                if (!targetActive()) { cancel(); return }
                 controller.setVolume(start - i)
             }
         }
+        if (!targetActive()) { cancel(); return }
         val media = NowPlaying.media.value
         if (media?.playing == true) media.playPause() else if (controller.state.value.playing == true) controller.playPause()
         delay(1_500)
-        if (powerOffWhenDone(context) && controller.state.value.phase == Phase.CONNECTED) controller.powerOff()
+        if (!targetActive()) { cancel(); return }
+        if (powerOffWhenDone(context) && controller.state.value.phase == Phase.CONNECTED && controller.state.value.capabilities.powerOff) controller.powerOff()
         else if (start != null) controller.setVolume(start)
-        job = null
-        _state.value = State.Off
+        cancel()
     }
 }

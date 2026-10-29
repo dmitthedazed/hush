@@ -54,6 +54,7 @@ import com.occaecat.hush.guide.InstructionGuide
 /** Sound Connect's instruction guide for the connected model, laid out natively (see [InstructionGuide]). */
 @Composable
 fun GuidePage(state: HeadphonesState, onClose: () -> Unit) {
+    if (!state.capabilities.vendorGuide) { HelpPage(state, {}, {}, onClose); return }
     val model = state.modelName ?: state.deviceName ?: "WH-1000XM4"
     var attempt by remember { mutableIntStateOf(0) }
     var topics by remember { mutableStateOf<List<InstructionGuide.Topic>?>(null) }

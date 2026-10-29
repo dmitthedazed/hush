@@ -160,7 +160,7 @@ private fun StatusPane(state: HeadphonesState, modifier: Modifier) {
     Column(modifier, verticalArrangement = Arrangement.Center) {
         Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
             Image(
-                painterResource(R.drawable.xm4_angle), null,
+                painterResource(if (state.isJabra) R.drawable.earbuds else R.drawable.xm4_angle), null,
                 Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit,
                 alpha = if (state.phase == Phase.CONNECTED) 1f else 0.5f,

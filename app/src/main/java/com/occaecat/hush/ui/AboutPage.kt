@@ -109,7 +109,7 @@ fun AboutPage(onClose: () -> Unit) {
             Text("Hush", style = MaterialTheme.typography.displaySmallEmphasized)
             Text("Version ${info.versionName} (${info.longVersionCode})", style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary)
-            Text("Your Sony headphones, without Sound Connect", style = MaterialTheme.typography.bodyMedium,
+            Text("Independent controls for Sony and Jabra headphones", style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
@@ -147,7 +147,7 @@ fun AboutPage(onClose: () -> Unit) {
         // ---- notices
         SectionHeader("Notices")
         Text(
-            "Hush is an independent app and is not made, endorsed or supported by Sony. Sony, WH-1000XM4, " +
+            "Hush is an independent app and is not made, endorsed or supported by Sony or Jabra. Sony, WH-1000XM4, " +
                 "Sound Connect and DSEE Extreme are trademarks of Sony Group Corporation; LDAC is a trademark of Sony. " +
                 "Headphone images, tutorials, help articles and firmware information are Sony's and are fetched from " +
                 "Sony's own servers, the way Sound Connect does, so the app can work with headphones you own.\n\n" +

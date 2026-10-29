@@ -93,7 +93,7 @@ class HushTileService : Material3TileService() {
                 if (snap.connected) column(
                     row(
                         icon(
-                            imageResource(androidImageResource(R.drawable.ic_xm4)),
+                            imageResource(androidImageResource(if (snap.brand == "JABRA") R.drawable.earbuds else R.drawable.ic_xm4)),
                             width = 16f.dp, height = 16f.dp,
                             tintColor = colorScheme.primary,
                         ),
@@ -113,14 +113,14 @@ class HushTileService : Material3TileService() {
             },
             mainSlot = {
                 if (snap.connected) box(
-                    buttonGroup { for (m in AmbientMode.entries) buttonGroupItem { modeButton(m, snap.mode == m) } },
+                    buttonGroup { for (m in snap.noiseModes) buttonGroupItem { modeButton(m, snap.mode == m) } },
                     width = expand(),
                     height = expand(),
                     // Air between the round-cornered buttons and the battery arc.
                     modifier = if (level != null) LayoutModifier.padding(GROUP_INSET) else null,
                 ) else column(
                     icon(
-                        imageResource(androidImageResource(R.drawable.ic_xm4)),
+                        imageResource(androidImageResource(if (snap.brand == "JABRA") R.drawable.earbuds else R.drawable.ic_xm4)),
                         width = 36f.dp, height = 36f.dp,
                         tintColor = colorScheme.onSurfaceVariant,
                     ),

@@ -266,19 +266,18 @@ class HushHub private constructor(private val app: Application) {
 
 /** The phone's answer before it arrives, so taps on a relayed route feel local. */
 private fun Snapshot.optimistic(c: Command): Snapshot = when (c) {
-    is Command.SetMode -> copy(mode = c.mode)
-    is Command.SetAmbientLevel -> copy(mode = AmbientMode.AMBIENT, ambientLevel = c.level)
+    is Command.SetMode -> if (c.mode in noiseModes) copy(mode = c.mode) else this
+    is Command.SetAmbientLevel -> if (c.level in ambientMin..ambientMax) copy(ambientLevel = c.level) else this
     is Command.SetVoiceFocus -> copy(voiceFocus = c.on)
     is Command.SetSpeakToChat -> copy(speakToChat = c.on)
     is Command.SetDsee -> copy(dseeAuto = c.auto)
-    is Command.SetEqPreset -> copy(eqPreset = c.id)
-    Command.CycleNoise -> copy(
-        mode = when (mode) {
-            AmbientMode.NOISE_CANCELLING -> AmbientMode.AMBIENT
-            AmbientMode.AMBIENT -> AmbientMode.OFF
-            else -> AmbientMode.NOISE_CANCELLING
-        }
-    )
+    is Command.SetEqPreset -> if (c.namespace == eqNamespace && c.id in eqPresets) copy(eqPreset = c.id) else this
+    is Command.SetAncLevel -> if (c.level in 0..ancMax) copy(ancLevel = c.level) else this
+    is Command.SetEqBands -> if (c.layoutId == eqLayoutId) copy(eqBands = c.levels) else this
+    is Command.SetEqEnabled -> if (supportsEqEnable && c.namespace == eqNamespace && c.layoutId == eqLayoutId) copy(eqEnabled = c.enabled) else this
+    Command.CycleNoise -> noiseModes.toList().let { modes ->
+        if (modes.isEmpty()) this else copy(mode = modes[(modes.indexOf(mode) + 1) % modes.size])
+    }
     Command.Connect -> if (connected) this else copy(phase = Phase.CONNECTING)
     Command.Disconnect -> copy(phase = Phase.IDLE)
     Command.Refresh -> this

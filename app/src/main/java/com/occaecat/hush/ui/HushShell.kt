@@ -410,7 +410,7 @@ fun NotConnectedPlaceholder(state: HeadphonesState, modifier: Modifier = Modifie
         verticalArrangement = Arrangement.spacedBy(Space.m),
     ) {
         if (state.phase == Phase.FAILED) {
-            ProductDisk(R.drawable.xm4_front, size = 112.dp, dimmed = true)
+            ProductDisk(renderFor(state), size = 112.dp, dimmed = true)
         } else {
             ContainedLoadingIndicator(Modifier.size(96.dp))
         }
@@ -454,7 +454,7 @@ private fun StatusPane(state: HeadphonesState, vm: HeadphonesController, modifie
         ) {
             val disk = minOf(maxHeight, 200.dp)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.xl)) {
-                ProductDisk(renderFor(state.modelColor), size = disk, dimmed = state.phase != Phase.CONNECTED)
+                ProductDisk(renderFor(state), size = disk, dimmed = state.phase != Phase.CONNECTED)
                 Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
                     Text(
                         state.displayName,

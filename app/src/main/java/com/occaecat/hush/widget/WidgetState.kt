@@ -16,6 +16,9 @@ data class WidgetState(
     val codec: String?,
     val dsee: Boolean?,
     val speakToChat: Boolean?,
+    val jabra: Boolean = false,
+    val noiseModes: Set<AmbientMode> = AmbientMode.entries.toSet(),
+    val batteryDetails: String? = null,
 ) {
     val status: String
         get() = when {
@@ -37,6 +40,8 @@ data class WidgetState(
             codec = s.codec?.label?.takeIf { it != "—" },
             dsee = s.dseeAuto,
             speakToChat = s.speakToChat,
+            jabra = s.isJabra, noiseModes = s.capabilities.noiseModes,
+            batteryDetails = s.batteries.takeIf { it.isNotEmpty() }?.joinToString(" \u00b7 ") { "${it.label} ${it.level?.let { n -> "$n%" } ?: "Unknown"}" },
         )
 
         /** Used by the widget picker and Android Studio previews. */

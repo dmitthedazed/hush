@@ -16,6 +16,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.io.IOException
 import java.util.UUID
 
@@ -37,7 +40,7 @@ class MdrConnection(private val device: BluetoothDevice, private val scope: Coro
         private const val CONNECT_TIMEOUT_MS = 8_000L
     }
 
-    private var socket: BluetoothSocket? = null
+    @Volatile private var socket: BluetoothSocket? = null
     private var readerJob: Job? = null
     private val sendLock = Mutex()
     private val writeLock = Any()
@@ -60,6 +63,8 @@ class MdrConnection(private val device: BluetoothDevice, private val scope: Coro
     @SuppressLint("MissingPermission")
     private fun connectWithTimeout(create: () -> BluetoothSocket): BluetoothSocket {
         val s = create()
+        // Let an explicit disconnect interrupt an in-progress Bluetooth connect(), too.
+        socket = s
         val watchdog = scope.launch(Dispatchers.IO) {
             kotlinx.coroutines.delay(CONNECT_TIMEOUT_MS)
             runCatching { s.close() }
@@ -77,9 +82,14 @@ class MdrConnection(private val device: BluetoothDevice, private val scope: Coro
 
     @SuppressLint("MissingPermission")
     suspend fun open() = withContext(Dispatchers.IO) {
-        val s = runCatching { connectWithTimeout { device.createRfcommSocketToServiceRecord(MDR_UUID) } }
-            .recoverCatching { connectWithTimeout { device.createInsecureRfcommSocketToServiceRecord(MDR_UUID) } }
-            .getOrThrow()
+        currentCoroutineContext().ensureActive()
+        val s = try { connectWithTimeout { device.createRfcommSocketToServiceRecord(MDR_UUID) } }
+            catch (e: IOException) {
+                currentCoroutineContext().ensureActive()
+                connectWithTimeout { device.createInsecureRfcommSocketToServiceRecord(MDR_UUID) }
+            }
+        try { currentCoroutineContext().ensureActive() }
+        catch (e: CancellationException) { s.close(); throw e }
         socket = s
         sendSeq = 0
         lastRecvSeq = -1

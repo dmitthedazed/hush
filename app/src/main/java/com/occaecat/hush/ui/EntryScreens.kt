@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.occaecat.hush.HeadphoneBrand
 import com.occaecat.hush.HeadphonesState
 import com.occaecat.hush.PairedDevice
 import com.occaecat.hush.R
@@ -56,7 +57,7 @@ fun PermissionScreen(onGrant: () -> Unit) {
             )
             Spacer(Modifier.height(Space.s))
             Text(
-                "Hush needs the Nearby devices permission to open a control channel to your Sony headset.",
+                "Hush needs the Nearby devices permission to open a control channel to your headphones.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -90,7 +91,8 @@ fun DevicePickerScreen(state: HeadphonesState, onRefresh: () -> Unit, onPick: (S
             )
         }
         val sony = state.paired.filter { it.looksSony }
-        val other = state.paired.filterNot { it.looksSony }
+        val jabra = state.paired.filter { it.brand == HeadphoneBrand.JABRA }
+        val other = state.paired.filter { !it.looksSony && it.brand != HeadphoneBrand.JABRA }
         if (state.paired.isEmpty()) wideItem {
             Column(ItemWidth.padding(vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 ShapeBadge(Icons.Outlined.Bluetooth, size = 96.dp, polygon = MaterialShapes.Ghostish,
@@ -101,6 +103,7 @@ fun DevicePickerScreen(state: HeadphonesState, onRefresh: () -> Unit, onPick: (S
             }
         }
         if (sony.isNotEmpty()) item { DeviceGroup("Sony headphones", sony, state.address, onPick) }
+        if (jabra.isNotEmpty()) item { DeviceGroup("Jabra headphones", jabra, state.address, onPick) }
         if (other.isNotEmpty()) item { DeviceGroup("Other devices", other, state.address, onPick) }
     }
 }
