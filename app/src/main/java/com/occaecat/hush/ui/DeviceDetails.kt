@@ -50,6 +50,7 @@ fun DeviceDetailsPage(state: HeadphonesState, onClose: () -> Unit) {
     FullScreenPage("Device details", onClose) {
         Section("Headphones", buildList {
             add(Info(Icons.Outlined.Headphones, "Model", state.modelName))
+            add(Info(Icons.Outlined.Info, "Brand", state.brand.name.lowercase().replaceFirstChar { it.uppercase() }))
             add(Info(Icons.Outlined.Category, "Series", state.modelSeries?.let { SERIES[it] ?: hex(it) }))
             add(Info(Icons.Outlined.Palette, "Colour", state.modelColor?.let { COLORS[it] ?: hex(it) }))
             add(Info(Icons.Outlined.Info, "Firmware", state.firmware))

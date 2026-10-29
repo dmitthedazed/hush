@@ -37,6 +37,7 @@ class HushModule : XposedModule() {
     }
 
     override fun onPackageReady(param: PackageReadyParam) {
+        if (com.occaecat.hush.BuildConfig.ISOLATED_TEST_BUILD) return
         trace("package ready ${param.packageName} in $processName")
         if (param.packageName == ACCESSORY && (processName == ACCESSORY || processName == "$ACCESSORY:ui")) {
             runCatching {

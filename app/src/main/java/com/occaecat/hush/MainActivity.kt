@@ -85,7 +85,7 @@ private fun HushApp() {
         if (!prefs.getBoolean("tile_offered", false)) {
             prefs.edit().putBoolean("tile_offered", true).apply()
             context.getSystemService(android.app.StatusBarManager::class.java)?.requestAddTileService(
-                android.content.ComponentName(context, HushTileService::class.java), "Hush",
+                android.content.ComponentName(context, HushTileService::class.java), context.getString(R.string.hush_app_label),
                 android.graphics.drawable.Icon.createWithResource(context, R.drawable.ic_stat_headphones),
                 context.mainExecutor,
             ) {}

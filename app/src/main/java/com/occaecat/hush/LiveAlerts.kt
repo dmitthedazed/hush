@@ -45,7 +45,7 @@ object LiveAlerts {
         )
         val notification = Notification.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_headphones)
-            .setLargeIcon(Icon.createWithResource(context, R.drawable.card_xm4))
+            .setLargeIcon(Icon.createWithResource(context, if (HeadphonesController.get(context).state.value.isJabra) R.drawable.earbuds else R.drawable.card_xm4))
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text))

@@ -95,7 +95,7 @@ private fun Title(text: String, sizeSp: Int = 15) {
 @Composable
 private fun Render(size: androidx.compose.ui.unit.Dp, s: WidgetState) {
     Image(
-        ImageProvider(R.drawable.xm4_angle), contentDescription = s.name,
+        ImageProvider(if (s.jabra) R.drawable.earbuds else R.drawable.xm4_angle), contentDescription = s.name,
         modifier = GlanceModifier.size(size), contentScale = ContentScale.Fit,
     )
 }
@@ -104,7 +104,7 @@ private fun Render(size: androidx.compose.ui.unit.Dp, s: WidgetState) {
 @Composable
 private fun ModeButtons(s: WidgetState, buttonSize: androidx.compose.ui.unit.Dp, gap: androidx.compose.ui.unit.Dp) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        AmbientMode.entries.forEachIndexed { i, mode ->
+        s.noiseModes.forEachIndexed { i, mode ->
             if (i > 0) Spacer(GlanceModifier.width(gap))
             val active = s.connected && s.mode == mode
             CircleIconButton(
@@ -125,7 +125,7 @@ private fun LabeledModeButtons(s: WidgetState, fill: GlanceModifier? = null) {
     // With [fill] (a weight from the parent column) the buttons take all the height left over.
     val large = fill != null
     Row((fill ?: GlanceModifier).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        AmbientMode.entries.forEachIndexed { i, mode ->
+        s.noiseModes.forEachIndexed { i, mode ->
             if (i > 0) Spacer(GlanceModifier.width(8.dp))
             val active = s.connected && s.mode == mode
             Column(
@@ -237,13 +237,13 @@ fun DashboardContent(s: WidgetState) {
                 Column(GlanceModifier.defaultWeight()) {
                     Title(s.name, if (roomy) 19 else 17)
                     Text(
-                        s.status, maxLines = 1,
+                        if (s.connected) s.batteryDetails ?: s.status else s.status, maxLines = 1,
                         style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = if (roomy) 14.sp else 13.sp),
                     )
                     if (roomy && s.connected) {
                         Spacer(GlanceModifier.height(4.dp))
                         Text(
-                            modeLabel(s.mode), maxLines = 1,
+                            if (s.jabra && s.mode == AmbientMode.AMBIENT) "HearThrough" else modeLabel(s.mode), maxLines = 1,
                             style = TextStyle(color = GlanceTheme.colors.primary, fontSize = 14.sp, fontWeight = FontWeight.Medium),
                         )
                     }
@@ -255,9 +255,9 @@ fun DashboardContent(s: WidgetState) {
                 // Chips sit right on top of the mode buttons, which take whatever height is left.
                 Spacer(GlanceModifier.height(12.dp))
                 Row(GlanceModifier.fillMaxWidth()) {
-                    ToggleChip("DSEE Extreme", s.connected && s.dsee == true, s.connected && s.dsee != null, actionToggleDsee(), GlanceModifier.defaultWeight())
+                    if (s.dsee != null) ToggleChip("DSEE Extreme", s.connected && s.dsee == true, s.connected && s.dsee != null, actionToggleDsee(), GlanceModifier.defaultWeight())
                     Spacer(GlanceModifier.width(8.dp))
-                    ToggleChip("Speak-to-Chat", s.connected && s.speakToChat == true, s.connected && s.speakToChat != null, actionToggleStc(), GlanceModifier.defaultWeight())
+                    if (s.speakToChat != null) ToggleChip("Speak-to-Chat", s.connected && s.speakToChat == true, s.connected && s.speakToChat != null, actionToggleStc(), GlanceModifier.defaultWeight())
                 }
                 Spacer(GlanceModifier.height(8.dp))
                 LabeledModeButtons(s, GlanceModifier.defaultWeight())

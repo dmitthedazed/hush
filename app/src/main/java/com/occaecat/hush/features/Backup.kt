@@ -9,6 +9,10 @@ import com.occaecat.hush.assistant.Assistants
 import com.occaecat.hush.mdr.AmbientMode
 import com.occaecat.hush.mdr.SpeakToChatDetail
 import com.occaecat.hush.sound.SoundStore
+import com.occaecat.hush.sound.SavedEq
+import com.occaecat.hush.sound.compatibleLayout
+import com.occaecat.hush.sound.legacySonyLayout
+import com.occaecat.hush.mdr.EqState
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -19,7 +23,7 @@ import org.json.JSONObject
  */
 object Backup {
     const val FORMAT = "hush-backup"
-    const val VERSION = 1
+    const val VERSION = 2
 
     data class Summary(val created: Long, val model: String?, val eqCount: Int, val sceneCount: Int, val hasInsights: Boolean, val hasHeadset: Boolean)
 
@@ -40,6 +44,7 @@ object Backup {
         val text = context.contentResolver.openInputStream(uri)!!.use { it.readBytes().toString(Charsets.UTF_8) }
         val o = JSONObject(text)
         require(o.optString("format") == FORMAT) { "Not a Hush backup" }
+        require(o.optInt("version", 1) in 1..VERSION) { "Unsupported Hush backup version" }
         return o
     }
 
@@ -54,6 +59,7 @@ object Backup {
 
     /** Restores the phone side; with [applyHeadset] also writes the headset settings that don't force a reconnect. */
     fun restore(context: Context, o: JSONObject, applyHeadset: Boolean, restoreInsights: Boolean) {
+        require(o.optInt("version", 1) in 1..VERSION) { "Unsupported Hush backup version" }
         o.optJSONObject("sound")?.let(SoundStore::importJson)
         o.optJSONObject("prefs")?.let { p ->
             p.optString("holdAction").takeIf { it.isNotEmpty() }?.let { runCatching { Assistant.valueOf(it) }.getOrNull() }
@@ -65,8 +71,14 @@ object Backup {
     }
 
     private fun headsetSnapshot(s: HeadphonesState) = JSONObject().apply {
-        s.ncAsm?.let { put("nc", JSONObject().put("mode", it.mode.name).put("level", it.ambientLevel).put("voice", it.voiceFocus)) }
-        s.eq?.let { put("eq", JSONObject().put("preset", it.presetId).put("bands", JSONArray(it.bands))) }
+        put("brand", s.brand.name)
+        s.ncAsm?.let { put("nc", JSONObject().put("mode", it.mode.name).put("level", it.ambientLevel).put("voice", it.voiceFocus)
+            .put("min", s.capabilities.ambientMin).put("max", s.capabilities.ambientMax)) }
+        s.ancLevel?.let { put("ancLevel", it); put("ancMax", s.capabilities.ancMax) }
+        s.sleepMinutes?.let { put("sleepMinutes", it) }
+        s.announcementMode?.let { put("announcementMode", it) }
+        s.eq?.let { put("eq", JSONObject().put("preset", it.presetId).put("bands", JSONArray(it.bands))
+            .put("enabled", it.enabled).put("layout", s.eqCaps?.layoutId).put("namespace", s.eqCaps?.namespace)) }
         s.speakToChat?.let { put("stc", it) }
         s.speakToChatDetail?.let { put("stcDetail", JSONObject().put("sensitivity", it.sensitivity).put("voice", it.voiceFocus).put("out", it.modeOutTime)) }
         s.pauseWhenRemoved?.let { put("pauseWhenRemoved", it) }
@@ -83,15 +95,25 @@ object Backup {
     }
 
     private fun applyHeadset(c: HeadphonesController, h: JSONObject) {
+        // Old snapshots contain Sony settings, including numeric ambient and preset scales.
+        if (h.optString("brand", "SONY") != c.state.value.brand.name) return
         h.optJSONObject("nc")?.let { nc ->
             runCatching { AmbientMode.valueOf(nc.getString("mode")) }.getOrNull()?.let { mode ->
-                c.setNoiseControl(mode, nc.optInt("level", 10), nc.optBoolean("voice"))
+                val caps = c.state.value.capabilities
+                val sameRange = nc.optInt("min", 1) == caps.ambientMin && nc.optInt("max", 20) == caps.ambientMax
+                c.setNoiseControl(mode, nc.optInt("level", 10).takeIf { sameRange }, nc.optBoolean("voice").takeIf { caps.voiceFocus })
             }
         }
+        if (h.has("ancLevel") && h.optInt("ancMax") == c.state.value.capabilities.ancMax) c.setAncLevel(h.getInt("ancLevel"))
+        if (h.has("sleepMinutes")) c.setSleepMinutes(h.getInt("sleepMinutes"))
+        if (h.has("announcementMode")) c.setAnnouncementMode(h.getInt("announcementMode"))
         h.optJSONObject("eq")?.let { eq ->
             val id = eq.getInt("preset")
             val bands = eq.optJSONArray("bands")?.let { a -> List(a.length()) { a.getInt(it) } }.orEmpty()
-            if (id in HeadphonesController.WRITABLE_PRESETS && bands.isNotEmpty()) c.writeEqPreset(id, bands) else c.selectEqPreset(id)
+            val layout = eq.optString("layout").takeIf { it.isNotBlank() && it != "null" } ?: legacySonyLayout(bands.size)
+            val resolved = SavedEq("backup", "Backup", bands, layoutId = layout).compatibleLayout(c.state.value.eqCaps)
+            if (resolved != null) c.restoreEq(EqState(id, bands, eq.optBoolean("enabled", true)), resolved, c.state.value.address)
+            else if (bands.isEmpty()) c.selectEqPreset(id, eq.optString("namespace", "sony-mdr"))
         }
         if (h.has("stc")) c.setSpeakToChat(h.getBoolean("stc"))
         h.optJSONObject("stcDetail")?.let { c.setSpeakToChatDetail(SpeakToChatDetail(it.getInt("sensitivity"), it.getBoolean("voice"), it.getInt("out"))) }

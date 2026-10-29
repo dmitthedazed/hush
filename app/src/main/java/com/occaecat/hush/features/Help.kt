@@ -21,7 +21,14 @@ object Help {
         APP_GUIDE("Sound Connect help guide", "Sony's guide to every app setting", "DIRECT", "dashboard", "SETTING_COMPATIBLE_DEVICE_LIST"),
     }
 
+    fun jabraSupportUrl(model: String) = when {
+        model.contains("85t", ignoreCase = true) -> "https://www.jabra.com/supportpages/jabra-elite-85t"
+        model.contains("Elite 10", ignoreCase = true) -> "https://www.jabra.com/supportpages/jabra-elite-10"
+        else -> "https://www.jabra.com/support"
+    }
+
     suspend fun open(context: Context, model: String, firmware: String?, article: Article): Boolean {
+        if (model.contains("Jabra", ignoreCase = true)) return openUrl(context, jabraSupportUrl(model))
         val url = withContext(Dispatchers.IO) {
             runCatching { Concierge.resolve(model, article.action, article.screen, article.directId, firmware) }.getOrNull()
         }
@@ -32,7 +39,7 @@ object Help {
         return openUrl(context, url)
     }
 
-    fun openHelpGuide(context: Context, model: String) = openUrl(context, Concierge.helpGuideUrl(model))
+    fun openHelpGuide(context: Context, model: String) = openUrl(context, if (model.contains("Jabra", ignoreCase = true)) jabraSupportUrl(model) else Concierge.helpGuideUrl(model))
 
     fun openUrl(context: Context, url: String) = runCatching {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

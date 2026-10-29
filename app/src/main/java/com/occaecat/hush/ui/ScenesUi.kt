@@ -88,6 +88,7 @@ fun ScenesRow(state: HeadphonesState, modifier: Modifier) {
     var editing by remember { mutableStateOf<Scene?>(null) }
     // A noise mode changed elsewhere (button on the headset, notification) no longer matches the scene.
     val mode = state.ncAsm?.mode
+    LaunchedEffect(state.address) { Scenes.forDevice(state.address) }
     LaunchedEffect(mode) {
         val s = config.scenes.firstOrNull { it.id == active } ?: return@LaunchedEffect
         if (s.action.mode != null && mode != null && s.action.mode != mode) Scenes.clear()
@@ -144,7 +145,10 @@ fun ScenesRow(state: HeadphonesState, modifier: Modifier) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SceneEditorSheet(initial: Scene, state: HeadphonesState, isNew: Boolean, onClose: () -> Unit) {
-    var scene by remember { mutableStateOf(initial) }
+    var scene by remember { mutableStateOf(initial.copy(
+        volume = initial.volume?.let { (it.toDouble() / (initial.volumeSteps - 1).coerceAtLeast(1) * (state.volumeSteps - 1)).roundToInt() },
+        volumeSteps = state.volumeSteps,
+    )) }
     var editingSound by remember { mutableStateOf(false) }
     val config by SoundStore.config.collectAsState()
     val presets = presetsFor(state)
@@ -172,6 +176,7 @@ private fun SceneEditorSheet(initial: Scene, state: HeadphonesState, isNew: Bool
             SegmentedGroup {
                 ValueRow(0, 1, Icons.Outlined.Star, "Noise control & EQ", describe(scene.action, config, presets)) { editingSound = true }
             }
+            if (state.speakToChat != null) {
             SectionHeader("Speak-to-Chat", top = Space.m)
             val stc = listOf<Pair<Boolean?, String>>(null to "Keep", true to "On", false to "Off")
             Row(horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
@@ -188,13 +193,14 @@ private fun SceneEditorSheet(initial: Scene, state: HeadphonesState, isNew: Bool
                     ) { Text(label) }
                 }
             }
-            Row(Modifier.padding(top = Space.m), verticalAlignment = Alignment.CenterVertically) {
-                Text("Set headphone volume", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                Switch(scene.volume != null, { scene = scene.copy(volume = if (it) state.volume ?: 10 else null) })
             }
-            scene.volume?.let { v ->
+            if (state.volume != null) Row(Modifier.padding(top = Space.m), verticalAlignment = Alignment.CenterVertically) {
+                Text("Set headphone volume", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                Switch(scene.volume != null, { scene = scene.copy(volume = if (it) state.volume ?: 10 else null, volumeSteps = state.volumeSteps) })
+            }
+            scene.volume?.takeIf { state.volume != null }?.let { v ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Slider(v.toFloat(), { scene = scene.copy(volume = it.roundToInt()) }, valueRange = 0f..(state.volumeSteps - 1).toFloat(),
+                    Slider(v.toFloat(), { scene = scene.copy(volume = it.roundToInt(), volumeSteps = state.volumeSteps) }, valueRange = 0f..(state.volumeSteps - 1).toFloat(),
                         colors = quietSliderColors(), modifier = Modifier.weight(1f))
                     Text("$v", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(start = Space.m))
@@ -255,12 +261,14 @@ fun SleepTimerChip(modifier: Modifier = Modifier) {
 private fun SleepTimerSheet(onClose: () -> Unit) {
     val context = LocalContext.current
     val st by SleepTimer.state.collectAsState()
+    val headset by com.occaecat.hush.HeadphonesController.get(context).state.collectAsState()
+    val canPowerOff = headset.capabilities.powerOff
     var powerOff by remember { mutableStateOf(SleepTimer.powerOffWhenDone(context)) }
     ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.padding(horizontal = Space.m).navigationBarsPadding()) {
             Text("Sleep timer", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = Space.s))
-            Text("Fades the headphone volume, pauses, then ${if (powerOff) "turns the headphones off" else "puts the volume back"}.",
+            Text("Fades the headphone volume, pauses, then ${if (powerOff && canPowerOff) "turns the headphones off" else "puts the volume back"}.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = Space.s, top = Space.xs))
             Spacer(Modifier.height(Space.m))
@@ -276,7 +284,7 @@ private fun SleepTimerSheet(onClose: () -> Unit) {
                     Text("End of track")
                 }
             }
-            Row(Modifier.padding(top = Space.m), verticalAlignment = Alignment.CenterVertically) {
+            if (canPowerOff) Row(Modifier.padding(top = Space.m), verticalAlignment = Alignment.CenterVertically) {
                 Text("Turn off the headphones", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                 Switch(powerOff, { powerOff = it; SleepTimer.setPowerOffWhenDone(context, it) })
             }

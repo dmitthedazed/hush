@@ -36,17 +36,23 @@ import kotlin.math.pow
  */
 object Insights {
 
-    data class BatterySample(val t: Long, val level: Int, val charging: Boolean, val nc: Boolean, val session: Int)
+    data class BatterySample(val t: Long, val level: Int, val charging: Boolean, val nc: Boolean, val session: Int, val device: String? = null)
 
-    data class Day(val date: LocalDate, val minutes: Int, val dose: Double, val volumeSum: Long)
+    data class Day(val date: LocalDate, val minutes: Int, val dose: Double, val volumeSum: Long, val device: String? = null)
 
-    data class LastSeen(val t: Long, val connected: Boolean, val lat: Double?, val lng: Double?, val accuracy: Float?)
+    data class LastSeen(val t: Long, val connected: Boolean, val lat: Double?, val lng: Double?, val accuracy: Float?, val device: String? = null)
 
     data class Snapshot(
         val battery: List<BatterySample> = emptyList(),
         val days: List<Day> = emptyList(),
         val lastSeen: LastSeen? = null,
     )
+
+    fun forDevice(snapshot: Snapshot, state: com.occaecat.hush.HeadphonesState): Snapshot {
+        fun matches(device: String?) = device == state.address || (device == null && state.isSony)
+        return snapshot.copy(battery = snapshot.battery.filter { matches(it.device) },
+            days = snapshot.days.filter { matches(it.device) }, lastSeen = snapshot.lastSeen?.takeIf { matches(it.device) })
+    }
 
     private val _data = MutableStateFlow(Snapshot())
     val data: StateFlow<Snapshot> = _data
@@ -67,27 +73,30 @@ object Insights {
 
         scope.launch {
             var previous = Phase.IDLE
-            state.map { it.phase }.distinctUntilChanged().collect { phase ->
+            var previousAddress: String? = null
+            state.map { it.phase to it.address }.distinctUntilChanged().collect { (phase, address) ->
                 val up = phase == Phase.CONNECTED || phase == Phase.RECONNECTING
                 val wasUp = previous == Phase.CONNECTED || previous == Phase.RECONNECTING
                 if (phase == Phase.CONNECTED && !wasUp) {
                     session++
-                    seen(app, connected = true)
+                    seen(app, connected = true, address)
                 }
-                if (!up && wasUp) seen(app, connected = false)
+                if (!up && wasUp) seen(app, connected = false, previousAddress)
                 previous = phase
+                previousAddress = address
             }
         }
         scope.launch {
-            state.map { Triple(it.battery, it.charging, it.ncAsm?.mode) to it.phase }.distinctUntilChanged().collect { (b, phase) ->
+            state.map { Triple(it.battery, it.charging, it.ncAsm?.mode) to (it.phase to it.address) }.distinctUntilChanged().collect { (b, deviceState) ->
+                val (phase, address) = deviceState
                 val (level, charging, mode) = b
                 if (level == null || phase != Phase.CONNECTED) return@collect
                 val last = _data.value.battery.lastOrNull()
-                if (last != null && last.session == session && last.level == level && last.charging == charging &&
+                if (last != null && last.device == address && last.session == session && last.level == level && last.charging == charging &&
                     last.nc == (mode == AmbientMode.NOISE_CANCELLING)) return@collect
                 update { s ->
                     s.copy(battery = (s.battery + BatterySample(System.currentTimeMillis(), level, charging,
-                        mode == AmbientMode.NOISE_CANCELLING, session)).trimDays { it.t })
+                        mode == AmbientMode.NOISE_CANCELLING, session, address)).trimDays { it.t })
                 }
             }
         }
@@ -97,15 +106,15 @@ object Insights {
                 delay(60_000)
                 val s = state.value
                 val playing = NowPlaying.media.value?.playing ?: (s.playing == true)
-                if (s.phase != Phase.CONNECTED || !playing) continue
+                if (s.phase != Phase.CONNECTED || !playing || !s.isSony) continue
                 val v = s.volume ?: continue
                 val today = LocalDate.now()
                 update { snap ->
                     val days = snap.days.toMutableList()
-                    val i = days.indexOfFirst { it.date == today }
+                    val i = days.indexOfFirst { it.date == today && it.device == s.address }
                     val add = doseForMinute(v, s.volumeSteps)
                     if (i >= 0) days[i] = days[i].let { it.copy(minutes = it.minutes + 1, dose = it.dose + add, volumeSum = it.volumeSum + v) }
-                    else days += Day(today, 1, add, v.toLong())
+                    else days += Day(today, 1, add, v.toLong(), s.address)
                     snap.copy(days = days.filter { it.date.isAfter(today.minusDays(KEEP_DAYS)) })
                 }
             }
@@ -121,18 +130,18 @@ object Insights {
     data class Drain(val percentPerHour: Double, val hoursMeasured: Double, val measured: Boolean)
 
     /** Drain measured inside sessions only (see the class doc), over the last two weeks; Sony's rating until 2 h are known. */
-    fun drain(nc: Boolean, samples: List<BatterySample> = _data.value.battery): Drain {
+    fun drain(nc: Boolean, samples: List<BatterySample> = _data.value.battery, sonyRating: Boolean = true): Drain {
         val since = System.currentTimeMillis() - 14 * 86_400_000L
         var drop = 0.0
         var hours = 0.0
         samples.filter { it.t > since }.zipWithNext().forEach { (a, b) ->
-            if (a.session != b.session || a.charging || b.charging || a.nc != nc) return@forEach
+            if (a.device != b.device || a.session != b.session || a.charging || b.charging || a.nc != nc) return@forEach
             val d = a.level - b.level
             val h = (b.t - a.t) / 3_600_000.0
             if (d < 0 || h <= 0 || h > 12) return@forEach
             drop += d; hours += h
         }
-        val rated = if (nc) RATED_NC_PER_HOUR else RATED_OFF_PER_HOUR
+        val rated = if (!sonyRating) Double.NaN else if (nc) RATED_NC_PER_HOUR else RATED_OFF_PER_HOUR
         return if (hours >= 2 && drop > 0) Drain(drop / hours, hours, true) else Drain(rated, hours, false)
     }
 
@@ -161,14 +170,17 @@ object Insights {
     // ---- last seen ----
 
     @SuppressLint("MissingPermission")
-    private fun seen(context: Context, connected: Boolean) = scope.launch {
+    private fun seen(context: Context, connected: Boolean, device: String?) = scope.launch {
         val now = System.currentTimeMillis()
-        update { it.copy(lastSeen = LastSeen(now, connected, it.lastSeen?.lat, it.lastSeen?.lng, it.lastSeen?.accuracy)) }
+        update { snapshot ->
+            val previous = snapshot.lastSeen?.takeIf { it.device == device }
+            snapshot.copy(lastSeen = LastSeen(now, connected, previous?.lat, previous?.lng, previous?.accuracy, device))
+        }
         if (connected || !hasLocation(context)) return@launch
         val client = LocationServices.getFusedLocationProviderClient(context)
         val loc = runCatching { client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null).await() }.getOrNull()
             ?: runCatching { client.lastLocation.await() }.getOrNull()
-        if (loc != null) update { it.copy(lastSeen = LastSeen(now, false, loc.latitude, loc.longitude, loc.accuracy)) }
+        if (loc != null) update { if (it.lastSeen?.t == now && it.lastSeen.device == device) it.copy(lastSeen = LastSeen(now, false, loc.latitude, loc.longitude, loc.accuracy, device)) else it }
     }
 
     fun hasLocation(c: Context) =
@@ -204,10 +216,10 @@ object Insights {
     }
 
     private fun encode(s: Snapshot) = JSONObject()
-        .put("battery", JSONArray(s.battery.map { JSONArray().put(it.t).put(it.level).put(it.charging).put(it.nc).put(it.session) }))
-        .put("days", JSONArray(s.days.map { JSONArray().put(it.date.toString()).put(it.minutes).put(it.dose).put(it.volumeSum) }))
+        .put("battery", JSONArray(s.battery.map { JSONArray().put(it.t).put(it.level).put(it.charging).put(it.nc).put(it.session).put(it.device ?: JSONObject.NULL) }))
+        .put("days", JSONArray(s.days.map { JSONArray().put(it.date.toString()).put(it.minutes).put(it.dose).put(it.volumeSum).put(it.device ?: JSONObject.NULL) }))
         .put("lastSeen", s.lastSeen?.let {
-            JSONObject().put("t", it.t).put("connected", it.connected).put("lat", it.lat ?: JSONObject.NULL)
+            JSONObject().put("t", it.t).put("connected", it.connected).put("device", it.device ?: JSONObject.NULL).put("lat", it.lat ?: JSONObject.NULL)
                 .put("lng", it.lng ?: JSONObject.NULL).put("acc", it.accuracy?.toDouble() ?: JSONObject.NULL)
         } ?: JSONObject.NULL)
 
@@ -216,12 +228,12 @@ object Insights {
         val d = o.optJSONArray("days") ?: JSONArray()
         val ls = o.optJSONObject("lastSeen")
         return Snapshot(
-            battery = List(b.length()) { b.getJSONArray(it) }.map { BatterySample(it.getLong(0), it.getInt(1), it.getBoolean(2), it.getBoolean(3), it.getInt(4)) },
-            days = List(d.length()) { d.getJSONArray(it) }.map { Day(LocalDate.parse(it.getString(0)), it.getInt(1), it.getDouble(2), it.getLong(3)) },
+            battery = List(b.length()) { b.getJSONArray(it) }.map { BatterySample(it.getLong(0), it.getInt(1), it.getBoolean(2), it.getBoolean(3), it.getInt(4), if (it.isNull(5)) null else it.optString(5).takeIf { d -> d.isNotEmpty() }) },
+            days = List(d.length()) { d.getJSONArray(it) }.map { Day(LocalDate.parse(it.getString(0)), it.getInt(1), it.getDouble(2), it.getLong(3), if (it.isNull(4)) null else it.optString(4).takeIf { d -> d.isNotEmpty() }) },
             lastSeen = ls?.let {
                 LastSeen(it.getLong("t"), it.optBoolean("connected"),
                     if (it.isNull("lat")) null else it.getDouble("lat"), if (it.isNull("lng")) null else it.getDouble("lng"),
-                    if (it.isNull("acc")) null else it.getDouble("acc").toFloat())
+                    if (it.isNull("acc")) null else it.getDouble("acc").toFloat(), if (it.isNull("device")) null else it.optString("device").takeIf { d -> d.isNotEmpty() })
             },
         )
     }

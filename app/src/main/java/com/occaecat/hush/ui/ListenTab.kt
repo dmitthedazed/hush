@@ -2,6 +2,8 @@
 
 package com.occaecat.hush.ui
 
+import androidx.compose.material3.TextButton
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
@@ -127,6 +129,12 @@ fun ListenTab(state: HeadphonesState, vm: HeadphonesController) {
         pinnedHero = if (showHero) ({ collapse -> ListenHero(state, collapse, vm::refreshBattery) }) else null,
     ) {
         when (state.phase) {
+            Phase.UPDATING -> wideItem {
+                Column(ItemWidth.padding(Space.m)) {
+                    Text("Firmware update in progress", style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = { DeepLink.open("firmware") }) { Text("View installation") }
+                }
+            }
             Phase.CONNECTING -> if (!showHero) wideItem { ConnectingHero(state, ItemWidth) }
             Phase.FAILED -> state.elsewhere?.let { other -> wideItem { ElsewhereCard(other, vm::takeControl, ItemWidth) } } ?: wideItem {
                 FailedHero(
@@ -138,11 +146,14 @@ fun ListenTab(state: HeadphonesState, vm: HeadphonesController) {
             }
             else -> {}
         }
+        if (state.phase == Phase.CONNECTED) state.error?.let { error -> wideItem {
+            Text(error, color = MaterialTheme.colorScheme.error, modifier = ItemWidth.padding(Space.m))
+        } }
         if (state.phase == Phase.RECONNECTING || state.audioSettling) wideItem { ReconnectingBanner(state, ItemWidth) }
         if (state.phase == Phase.CONNECTED || state.phase == Phase.RECONNECTING) {
             // On a fold lying flat the status pane above the hinge already shows the battery.
             state.ncAsm?.let { nc ->
-                item { NoiseControlCard(nc.mode, nc.ambientLevel, nc.voiceFocus, vm, ItemWidth) }
+                item { NoiseControlCard(state, vm, ItemWidth) }
                 item { ScenesRow(state, ItemWidth) }
             }
             if (state.dseeAuto != null || state.speakToChat != null) {
@@ -245,7 +256,7 @@ private fun ListenHero(state: HeadphonesState, collapse: HeroCollapse, onRefresh
                 ) {
                     if (state.phase == Phase.CONNECTING) LoadingIndicator(Modifier.align(Alignment.TopCenter).size(40.dp))
                     Image(
-                        painterResource(renderFor(state.modelColor)), contentDescription = null,
+                        painterResource(renderFor(state)), contentDescription = null,
                         modifier = Modifier.fillMaxSize(0.94f),
                         contentScale = ContentScale.Fit,
                         alpha = if (connected) 1f else 0.5f,
@@ -260,7 +271,12 @@ private fun ListenHero(state: HeadphonesState, collapse: HeroCollapse, onRefresh
                     modifier = Modifier.layoutId(HeroPart.Name),
                 )
                 if (connected) {
-                    Box(Modifier.layoutId(HeroPart.Status)) { BatteryGauge(level, state.charging) }
+                    Column(Modifier.layoutId(HeroPart.Status), horizontalAlignment = Alignment.CenterHorizontally) {
+                        BatteryGauge(level, state.charging)
+                        if (state.batteries.isNotEmpty()) Text(state.batteries.joinToString(" \u00b7 ") {
+                            "${it.label} ${it.level?.let { n -> "$n%" } ?: "Unknown"}" + if (it.charging == true) " charging" else ""
+                        }, style = MaterialTheme.typography.labelSmall)
+                    }
                     val codec = state.codec?.takeIf { it != Codec.UNSETTLED }
                     val dsee = state.dseeAuto == true
                     if (codec != null || dsee) {
@@ -397,7 +413,7 @@ private fun ConnectingHero(state: HeadphonesState, modifier: Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Space.m),
     ) {
-        ProductDisk(R.drawable.xm4_front, size = 144.dp)
+        ProductDisk(renderFor(state), size = 144.dp)
         LoadingIndicator(Modifier.size(48.dp))
         Text("Connecting", style = MaterialTheme.typography.headlineSmallEmphasized)
         Text(
@@ -422,7 +438,7 @@ private fun FailedHero(
     ) {
         Column(Modifier.padding(Space.l), horizontalAlignment = Alignment.CenterHorizontally) {
             if (showImage) {
-                ProductDisk(R.drawable.xm4_front, size = 112.dp, dimmed = true)
+                ProductDisk(renderFor(state), size = 112.dp, dimmed = true)
                 Spacer(Modifier.height(Space.m))
             }
             Text("Not connected", style = MaterialTheme.typography.headlineSmallEmphasized)
@@ -456,14 +472,26 @@ private val modeOptions = listOf(
  * block that springs open under it when Ambient is picked.
  */
 @Composable
-internal fun NoiseControlCard(mode: AmbientMode, level: Int, voiceFocus: Boolean, vm: HeadphonesController, modifier: Modifier) {
+internal fun NoiseControlCard(state: HeadphonesState, vm: HeadphonesController, modifier: Modifier) {
+    val nc = state.ncAsm ?: return
+    val mode = nc.mode
+    val caps = state.capabilities
+    val options = modeOptions.filter { it.mode in caps.noiseModes }
+    val ambient = mode == AmbientMode.AMBIENT
+    val adjustable = if (ambient) caps.ambientLevels else mode == AmbientMode.NOISE_CANCELLING && caps.ancMax > 0 && state.ancLevel != null
+    val level = if (ambient) nc.ambientLevel else state.ancLevel ?: 0
+    val minimum = if (ambient) caps.ambientMin else 0
+    val maximum = if (ambient) caps.ambientMax else caps.ancMax
+    fun setLevel(value: Int, dragging: Boolean) {
+        if (ambient) vm.setAmbientLevel(value, dragging) else if (!dragging) vm.setAncLevel(value)
+    }
     val motion = MaterialTheme.motionScheme
     Column(modifier) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
         ) {
-            modeOptions.forEachIndexed { i, o ->
+            options.forEachIndexed { i, o ->
                 val press = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                 ToggleButton(
                     checked = mode == o.mode,
@@ -477,7 +505,7 @@ internal fun NoiseControlCard(mode: AmbientMode, level: Int, voiceFocus: Boolean
                     contentPadding = PaddingValues(horizontal = Space.s),
                     shapes = when (i) {
                         0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                        modeOptions.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                        options.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
                         else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
                     },
                 ) {
@@ -485,7 +513,7 @@ internal fun NoiseControlCard(mode: AmbientMode, level: Int, voiceFocus: Boolean
                         Icon(painterResource(o.icon), null, Modifier.size(28.dp).hopOnSelect(mode == o.mode))
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            o.label, maxLines = 1, softWrap = false,
+                            if (state.isJabra && o.mode == AmbientMode.AMBIENT) "HearThrough" else o.label, maxLines = 1, softWrap = false,
                             style = MaterialTheme.typography.labelLarge,
                             // Narrow columns (small phones, landscape halves) shrink the label rather than clip it.
                             autoSize = TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = MaterialTheme.typography.labelLarge.fontSize),
@@ -495,7 +523,7 @@ internal fun NoiseControlCard(mode: AmbientMode, level: Int, voiceFocus: Boolean
             }
         }
         AnimatedVisibility(
-            visible = mode == AmbientMode.AMBIENT,
+            visible = adjustable || (ambient && caps.voiceFocus),
             enter = expandVertically(motion.defaultSpatialSpec()) + fadeIn(motion.defaultEffectsSpec()),
             exit = shrinkVertically(motion.fastSpatialSpec()) + fadeOut(motion.fastEffectsSpec()),
         ) {
@@ -503,11 +531,12 @@ internal fun NoiseControlCard(mode: AmbientMode, level: Int, voiceFocus: Boolean
                 Modifier.padding(top = Space.s).fillMaxWidth().clip(MaterialTheme.shapes.extraLarge)
                     .background(MaterialTheme.colorScheme.surfaceContainerLow).padding(Space.m),
             ) {
-                var drag by remember { mutableFloatStateOf(level.toFloat()) }
+                if (adjustable) {
+                var drag by remember(mode) { mutableFloatStateOf(level.toFloat()) }
                 var dragging by remember { mutableStateOf(false) }
                 val shown = if (dragging) drag else level.toFloat()
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Ambient level", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    Text(if (ambient) (if (state.isJabra) "HearThrough level" else "Ambient level") else "Noise cancelling strength", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                     Text(
                         "${shown.roundToInt()}",
                         style = MaterialTheme.typography.titleLargeEmphasized,
@@ -515,22 +544,22 @@ internal fun NoiseControlCard(mode: AmbientMode, level: Int, voiceFocus: Boolean
                     )
                 }
                 Slider(
-                    value = shown,
+                    value = shown.coerceIn(minimum.toFloat(), maximum.toFloat()),
                     onValueChange = {
                         dragging = true
                         drag = it
-                        vm.setAmbientLevel(it.roundToInt(), dragging = true)
+                        setLevel(it.roundToInt(), dragging = true)
                     },
                     onValueChangeFinished = {
                         dragging = false
-                        vm.setAmbientLevel(drag.roundToInt(), dragging = false)
+                        setLevel(drag.roundToInt(), dragging = false)
                     },
-                    valueRange = 1f..20f,
-                    steps = 18,
+                    valueRange = minimum.toFloat()..maximum.toFloat(),
+                    steps = (maximum - minimum - 1).coerceAtLeast(0),
                     colors = quietSliderColors(),
                 )
-                Spacer(Modifier.height(Space.s))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                }
+                if (ambient && caps.voiceFocus) Row(verticalAlignment = Alignment.CenterVertically) {
                     LeadIcon(Icons.Outlined.RecordVoiceOver)
                     Spacer(Modifier.width(Space.m))
                     Column(Modifier.weight(1f)) {
@@ -541,7 +570,7 @@ internal fun NoiseControlCard(mode: AmbientMode, level: Int, voiceFocus: Boolean
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Switch(checked = voiceFocus, onCheckedChange = vm::setVoiceFocus)
+                    Switch(checked = nc.voiceFocus, onCheckedChange = vm::setVoiceFocus)
                 }
             }
         }

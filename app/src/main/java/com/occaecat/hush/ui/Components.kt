@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.RoundedPolygon
 import com.occaecat.hush.HeadphonesState
+import com.occaecat.hush.R
 
 /** 8dp spacing scale. */
 /**
@@ -74,6 +75,9 @@ import com.occaecat.hush.HeadphonesState
  * generic render.
  */
 @androidx.annotation.DrawableRes
+fun renderFor(state: HeadphonesState): Int = if (state.isJabra) R.drawable.earbuds else renderFor(state.modelColor)
+
+@DrawableRes
 fun renderFor(color: Int?): Int = when (color) {
     0x00, 0x01 -> com.occaecat.hush.R.drawable.xm4_sony_black
     0x02 -> com.occaecat.hush.R.drawable.xm4_sony_white

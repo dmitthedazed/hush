@@ -95,6 +95,7 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
     var guide by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var details by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var updates by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var jabraButtons by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val fw = rememberFirmwareCheck(state)
     val appUpdate = rememberAppUpdate()
     var page by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
@@ -105,6 +106,9 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
 
     // The card below already shows status, battery and codec.
     TabScaffold(title = "Device", subtitle = null) {
+        if (state.phase == Phase.CONNECTED) state.error?.let { error -> wideItem {
+            Text(error, color = MaterialTheme.colorScheme.error, modifier = ItemWidth.padding(Space.m))
+        } }
         if (state.phase == Phase.RECONNECTING || state.audioSettling) wideItem { ReconnectingBanner(state, ItemWidth) }
         if (!connected) wideItem { NotConnectedPlaceholder(state, ItemWidth) }
 
@@ -118,7 +122,7 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
                 SectionHeader("About", top = Space.s)
                 SegmentedGroup {
                     ValueRow(0, 4, Icons.Outlined.SystemUpdate, "Updates", updatesSummary(appUpdate, fw)) { updates = true }
-                    ValueRow(1, 4, Icons.AutoMirrored.Outlined.HelpOutline, "Help", "Guide, tour and Sony support") { page = "help" }
+                    ValueRow(1, 4, Icons.AutoMirrored.Outlined.HelpOutline, "Help", if (state.isJabra) "Jabra support and manual" else "Guide, tour and Sony support") { page = "help" }
                     ValueRow(2, 4, Icons.Outlined.Backup, "Backup & restore", "Move Hush to a new phone") { page = "backup" }
                     ValueRow(3, 4, Icons.Outlined.Favorite, "About Hush", "Version, author, licenses") { page = "about" }
                 }
@@ -127,10 +131,20 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
 
         if (connected) {
             // ---------------------------------------------------------------- buttons
+            if (state.isJabra) item {
+                Column(ItemWidth) {
+                    SectionHeader("Buttons", top = Space.s)
+                    SegmentedGroup {
+                        ValueRow(0, 1, Icons.Outlined.TouchApp, "Button controls", "Music and call assignments", enabled = !busy) {
+                            jabraButtons = true
+                        }
+                    }
+                }
+            }
             val touchGs = state.generalSettings.values
                 .filter { it.title != "MULTIPOINT_SETTING" && it.isBoolean && state.generalValues[it.id] != null }
                 .sortedBy { it.id }
-            item {
+            if (state.isSony) item {
                 val ai = rememberAssistantUi()
                 val rows = buildList<@Composable (Int, Int) -> Unit> {
                     state.customButton?.let { preset ->
@@ -168,15 +182,15 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
             }
 
             // ---------------------------------------------------------------- wearing
-            item {
+            if (state.capabilities.optimizer || state.pauseWhenRemoved != null) item {
                 Column(ItemWidth) {
                     SectionHeader("Wearing", top = Space.s)
-                    val n = if (state.pauseWhenRemoved != null) 2 else 1
+                    val n = (if (state.capabilities.optimizer) 1 else 0) + (if (state.pauseWhenRemoved != null) 1 else 0)
                     SegmentedGroup {
-                        OptimizerRow(state, vm, 0, n)
+                        if (state.capabilities.optimizer) OptimizerRow(state, vm, 0, n)
                         state.pauseWhenRemoved?.let { on ->
-                            SwitchRow(1, n, Icons.Outlined.PauseCircleOutline, "Pause when taken off",
-                                if (state.pauseWhenRemovedAvailable) "Resume when you put them back on" else "Not available right now",
+                            SwitchRow(if (state.capabilities.optimizer) 1 else 0, n, Icons.Outlined.PauseCircleOutline, Labels.autoPauseTitle(state),
+                                Labels.autoPauseSupporting(state),
                                 on, enabled = state.pauseWhenRemovedAvailable, onCheckedChange = vm::setPauseWhenRemoved)
                         }
                     }
@@ -217,10 +231,21 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
             }
 
             // ---------------------------------------------------------------- connection
-            item { ConnectionSection(state, vm, busy, dialogs, ItemWidth) }
+            if (state.isSony) item { ConnectionSection(state, vm, busy, dialogs, ItemWidth) }
 
             // ---------------------------------------------------------------- power & prompts
             val power = buildList<@Composable (Int, Int) -> Unit> {
+                state.sleepMinutes?.let { minutes -> add { i, n ->
+                    ValueRow(i, n, Icons.Outlined.Timer, "Sleep mode", if (minutes == 0) "Never" else "$minutes minutes") {
+                        dialogs.choice = Choice("Sleep after inactivity", listOf(0 to "Never", 15 to "15 minutes", 30 to "30 minutes", 60 to "60 minutes", 120 to "120 minutes"), minutes, vm::setSleepMinutes)
+                    }
+                } }
+                state.announcementMode?.let { mode -> add { i, n ->
+                    val choices = listOf(0 to "Tones", 1 to "Voice guidance", 2 to "Off")
+                    ValueRow(i, n, Icons.Outlined.Campaign, "Announcements", choices.firstOrNull { it.first == mode }?.second) {
+                        dialogs.choice = Choice("Announcements", choices, mode, vm::setAnnouncementMode)
+                    }
+                } }
                 state.autoPowerOff?.let { (active, _) ->
                     add { i, n ->
                         ValueRow(i, n, Icons.Outlined.Timer, "Automatic power off",
@@ -252,7 +277,7 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
                     SectionHeader("About", top = Space.s)
                     SegmentedGroup {
                         ValueRow(0, 5, Icons.Outlined.SystemUpdate, "Updates", updatesSummary(appUpdate, fw)) { updates = true }
-                        ValueRow(1, 5, Icons.AutoMirrored.Outlined.HelpOutline, "Help", "Guide, tour and Sony support") { page = "help" }
+                        ValueRow(1, 5, Icons.AutoMirrored.Outlined.HelpOutline, "Help", if (state.isJabra) "Jabra support and manual" else "Guide, tour and Sony support") { page = "help" }
                         ValueRow(2, 5, Icons.Outlined.Backup, "Backup & restore", "Move Hush to a new phone") { page = "backup" }
                         ValueRow(3, 5, Icons.Outlined.Info, "Device details",
                             listOfNotNull(state.updateInfo[4], state.updateInfo[3]).joinToString(" · ").ifEmpty { null }) { details = true }
@@ -263,6 +288,7 @@ fun DeviceTab(state: HeadphonesState, vm: HeadphonesController) {
         }
     }
     DialogHost(dialogs)
+    if (jabraButtons) JabraButtonsPage(state, vm) { jabraButtons = false }
     if (guide) GuidePage(state) { guide = false }
     if (details) DeviceDetailsPage(state) { details = false }
     if (updates) UpdatesPage(state, appUpdate, fw) { updates = false }
@@ -290,7 +316,7 @@ private fun DeviceCard(state: HeadphonesState, vm: HeadphonesController, connect
         Column(Modifier.padding(Space.m)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Image(
-                    painterResource(renderFor(state.modelColor)), contentDescription = null,
+                    painterResource(renderFor(state)), contentDescription = null,
                     modifier = Modifier.size(88.dp),
                     contentScale = ContentScale.Fit,
                     alpha = if (connected) 1f else 0.5f,
@@ -309,13 +335,17 @@ private fun DeviceCard(state: HeadphonesState, vm: HeadphonesController, connect
                     }
                 }
             }
+            if (connected && state.batteries.isNotEmpty()) Text(
+                state.batteries.joinToString(" \u00b7 ") { "${it.label} ${it.level?.let { n -> "$n%" } ?: "Unknown"}" + if (it.charging == true) " charging" else "" },
+                style = MaterialTheme.typography.bodySmall,
+            )
             Spacer(Modifier.height(Space.m))
             Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
                 val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)
                 FilledTonalButton(onClick = vm::disconnect, Modifier.weight(1f), contentPadding = pad) {
                     Icon(Icons.Outlined.SwapHoriz, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Switch", maxLines = 1)
                 }
-                if (state.phase == Phase.CONNECTED) FilledTonalButton(onClick = { confirm = "off" }, Modifier.weight(1f), contentPadding = pad) {
+                if (state.phase == Phase.CONNECTED && state.capabilities.powerOff) FilledTonalButton(onClick = { confirm = "off" }, Modifier.weight(1f), contentPadding = pad) {
                     Icon(Icons.Outlined.PowerSettingsNew, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Turn off", maxLines = 1)
                 }
                 OutlinedButton(onClick = { confirm = "forget" }, Modifier.weight(1f), contentPadding = pad) {

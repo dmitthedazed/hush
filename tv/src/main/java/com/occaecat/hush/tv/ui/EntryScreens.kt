@@ -43,6 +43,7 @@ import androidx.tv.material3.OutlinedButton
 import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
+import com.occaecat.hush.HeadphoneBrand
 import com.occaecat.hush.HeadphonesState
 import com.occaecat.hush.tv.R
 
@@ -75,7 +76,7 @@ fun PermissionScreen(onGrant: () -> Unit) {
         Text("Hush", style = MaterialTheme.typography.displaySmall)
         Spacer(Modifier.height(Tv.Small))
         Text(
-            "Control your Sony headphones from the TV: noise cancelling, ambient sound, equalizer and device settings.",
+            "Control your headphones from the TV: noise cancelling, ambient sound, equalizer and device settings.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -127,13 +128,13 @@ fun DevicePickerScreen(state: HeadphonesState, onRefresh: () -> Unit, onPick: (S
                     scale = ListItemDefaults.scale(focusedScale = 1.02f),
                     leadingContent = {
                         Icon(
-                            if (d.looksSony) Icons.Outlined.Headphones else Icons.Outlined.Speaker, null,
+                            if (d.brand != HeadphoneBrand.UNKNOWN) Icons.Outlined.Headphones else Icons.Outlined.Speaker, null,
                             Modifier.size(ListItemDefaults.IconSize),
                         )
                     },
                     headlineContent = { Text(d.name) },
                     supportingContent = {
-                        Text(if (d.address == state.address) "Last used" else if (d.looksSony) "Sony" else d.address)
+                        Text(if (d.address == state.address) "Last used" else if (d.brand == HeadphoneBrand.JABRA) "Jabra" else if (d.looksSony) "Sony" else d.address)
                     },
                 )
             }

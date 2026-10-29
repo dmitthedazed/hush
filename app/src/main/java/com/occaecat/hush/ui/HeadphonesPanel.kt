@@ -49,7 +49,7 @@ fun HeadphonesPanel(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                ProductDisk(renderFor(state.modelColor), size = 88.dp, dimmed = state.phase != Phase.CONNECTED)
+                ProductDisk(renderFor(state), size = 88.dp, dimmed = state.phase != Phase.CONNECTED)
                 Spacer(Modifier.width(Space.m))
                 Column(Modifier.weight(1f)) {
                     Text(state.displayName, style = MaterialTheme.typography.titleLargeEmphasized)
@@ -70,9 +70,9 @@ fun HeadphonesPanel(
             when {
                 state.phase == Phase.CONNECTED && state.ncAsm != null -> {
                     val nc = state.ncAsm!!
-                    NoiseControlCard(nc.mode, nc.ambientLevel, nc.voiceFocus, vm, Modifier.fillMaxWidth())
+                    NoiseControlCard(state, vm, Modifier.fillMaxWidth())
                 }
-                state.phase == Phase.CONNECTING || state.phase == Phase.RECONNECTING ->
+                state.phase == Phase.CONNECTING || state.phase == Phase.RECONNECTING || state.phase == Phase.UPDATING ->
                     LoadingIndicator(Modifier.padding(Space.l))
                 else -> FilledTonalButton(onClick = { vm.connectSaved() }) { Text("Connect") }
             }

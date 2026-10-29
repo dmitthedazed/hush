@@ -54,7 +54,7 @@ class BatteryComplicationService : SuspendingComplicationDataSourceService() {
         val level = s.battery.takeIf { s.connected }
         val label = level?.let { "$it%" } ?: "--"
         val description = text(level?.let { "Headphones battery $it percent" } ?: "Headphones not connected")
-        val icon = mono(this, if (level != null) R.drawable.ic_xm4 else R.drawable.ic_w_disconnected)
+        val icon = mono(this, if (level != null) (if (s.brand == "JABRA") R.drawable.earbuds else R.drawable.ic_xm4) else R.drawable.ic_w_disconnected)
         val tap = openApp(this)
         return when (type) {
             ComplicationType.RANGED_VALUE ->

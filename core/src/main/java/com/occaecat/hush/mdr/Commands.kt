@@ -139,9 +139,26 @@ data class NcAsmState(
 
 data class EqPreset(val id: Int, val name: String)
 
-data class EqState(val presetId: Int, val bands: List<Int>)
+/** A negative preset id means the device has an editable curve but no hardware preset slots. */
+data class EqState(val presetId: Int, val bands: List<Int>, val enabled: Boolean = true)
 
-data class EqCapability(val bandCount: Int, val levelSteps: Int, val presets: List<EqPreset>)
+data class EqCapability(
+    val bandCount: Int,
+    val levelSteps: Int,
+    val presets: List<EqPreset>,
+    val namespace: String = "sony-mdr",
+    val bandSpecs: List<EqBandSpec> = EqBandSpec.sony(bandCount, levelSteps),
+    val supportsEnable: Boolean = false,
+) {
+    /** Legacy Sony records retain their original count/range identity. */
+    val layoutId: String get() = if (namespace == "sony-mdr") "$namespace:$bandCount:$levelSteps"
+        else "$namespace:" + bandSpecs.joinToString(";") {
+            "${it.frequencyHz}:${it.min}:${it.max}:${it.neutral}:${it.unitsPerDb}"
+        }
+
+    fun supports(levels: List<Int>): Boolean = levels.size == bandCount && bandSpecs.size == bandCount &&
+        levels.indices.all { levels[it] in bandSpecs[it].min..bandSpecs[it].max }
+}
 
 enum class Codec(val code: Int, val label: String) {
     UNSETTLED(0x00, "—"), SBC(0x01, "SBC"), AAC(0x02, "AAC"), LDAC(0x10, "LDAC"),

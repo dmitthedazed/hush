@@ -20,6 +20,10 @@ import androidx.compose.ui.text.font.FontWeight
 import com.occaecat.hush.mdr.EqState
 import com.occaecat.hush.autoeq.AutoEq
 import com.occaecat.hush.sound.SavedEq
+import com.occaecat.hush.sound.applySavedEq
+import com.occaecat.hush.sound.compatibleLayout
+import com.occaecat.hush.mdr.EqCapability
+import com.occaecat.hush.mdr.EqBandSpec
 import com.occaecat.hush.sound.SoundAutomation
 import com.occaecat.hush.sound.SoundStore
 import androidx.compose.runtime.collectAsState
@@ -89,29 +93,37 @@ fun SoundTab(state: HeadphonesState, vm: HeadphonesController) {
     // The last AutoEq profile only describes the sound while the custom preset it was written to is active.
     var autoEqApplied by remember { mutableStateOf(AutoEq.lastApplied(context)) }
     val connected = state.phase == Phase.CONNECTED || state.phase == Phase.RECONNECTING
-    val eq = state.eq
+    val caps = state.eqCaps
+    val eq = state.eq.takeIf { caps != null }
+    val error = state.error
     val presets = eq?.let { presetsFor(state) }
     TabScaffold(
         title = "Sound",
         subtitle = subtitleFor(state),
         // Same frame as Listen: the equalizer is the page's hero, so there is no app bar while it is shown.
         hero = if (connected && eq != null && presets != null) ({
-            EqualizerHero(eq, presets, vm, onManualEdit = {
+            EqualizerHero(eq, caps!!, presets, vm, onManualEdit = {
                 // A hand-tuned band means the curve is no longer the AutoEq one.
                 if (autoEqApplied != null) { AutoEq.forgetApplied(context); autoEqApplied = null }
             })
         }) else null,
     ) {
         if (state.phase == Phase.RECONNECTING || state.audioSettling) wideItem { ReconnectingBanner(state, ItemWidth) }
+        if (connected && error != null) wideItem {
+            Surface(ItemWidth.padding(top = Space.s), shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer) {
+                Text(error, Modifier.padding(Space.m), style = MaterialTheme.typography.bodyMedium)
+            }
+        }
         if (!connected) {
             wideItem { NotConnectedPlaceholder(state, ItemWidth) }
             return@TabScaffold
         }
-        if (eq != null && presets != null) item { PresetPicker(eq, presets, sound.library, vm, ItemWidth) }
+        if (eq != null && presets != null) item { PresetPicker(eq, caps!!, presets, sound.library, vm, ItemWidth) }
         if (eq != null && eq.bands.isNotEmpty()) item {
-            val current = autoEqApplied?.takeIf { eq.presetId == it.presetId }
+            val current = autoEqApplied?.takeIf { it.matches(state) }
             // Find Your Equalizer uses Sound Connect's tables for the standard six bands only.
-            val fye = eq.bands.size == Labels.sixBands.size
+            val fye = state.isSony && eq.bands.size == Labels.sixBands.size && caps?.bandSpecs?.all { it.neutral == 10 && it.min == 0 && it.max == 20 } == true
             Column(ItemWidth) {
                 SectionHeader("Personalize", top = Space.s)
                 SegmentedGroup {
@@ -202,11 +214,11 @@ fun SoundTab(state: HeadphonesState, vm: HeadphonesController) {
         }
     }
     DialogHost(dialogs)
-    if (autoEqOpen && eq != null) {
+    if (autoEqOpen && eq != null && caps != null) {
         AutoEqSheet(
             modelName = state.modelName,
-            bandCount = eq.bands.size,
-            targetPreset = if (eq.presetId in HeadphonesController.WRITABLE_PRESETS) eq.presetId else HeadphonesController.CUSTOM_PRESET,
+            capability = caps,
+            targetPreset = if (!state.isSony) -1 else if (eq.presetId in HeadphonesController.WRITABLE_PRESETS) eq.presetId else HeadphonesController.CUSTOM_PRESET,
             vm = vm,
             onApplied = { autoEqApplied = AutoEq.lastApplied(context) },
             onDismiss = { autoEqOpen = false },
@@ -231,15 +243,15 @@ fun SoundTab(state: HeadphonesState, vm: HeadphonesController) {
 
 internal fun presetsFor(state: HeadphonesState): List<Pair<Int, String>> =
     state.eqCaps?.presets?.takeIf { it.isNotEmpty() }
-        ?.map { it.id to it.name.ifBlank { Labels.presetNames[it.id] ?: "Preset" } }
-        ?: Labels.presetNames.filterKeys { it <= 0x17 || it == 0xA0 }.toList()
+        ?.map { it.id to it.name.ifBlank { if (state.isSony) Labels.presetNames[it.id] ?: "Preset" else "Preset" } }
+        ?: if (state.isSony) Labels.presetNames.filterKeys { it <= 0x17 || it == 0xA0 }.toList() else emptyList()
 
 /**
  * The top of the page as one surfaceContainerHigh block (status bar included, rounded at the bottom): the
  * equalizer title, the active preset and a reset button, over the band sliders.
  */
 @Composable
-private fun EqualizerHero(eq: EqState, presets: List<Pair<Int, String>>, vm: HeadphonesController, onManualEdit: () -> Unit) {
+private fun EqualizerHero(eq: EqState, caps: EqCapability, presets: List<Pair<Int, String>>, vm: HeadphonesController, onManualEdit: () -> Unit) {
     val top = if (LocalLayout.current.tabletopTop == null) {
         WindowInsets.statusBars.union(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
     } else WindowInsets(0)
@@ -257,13 +269,14 @@ private fun EqualizerHero(eq: EqState, presets: List<Pair<Int, String>>, vm: Hea
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 )
                 Text(
-                    presets.firstOrNull { it.first == eq.presetId }?.second ?: "Custom",
+                    if (!eq.enabled) "Bypassed" else presets.firstOrNull { it.first == eq.presetId }?.second ?: "Custom",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
             // Always composed: it must stay alive while it holds the headset on Off.
-            if (eq.bands.isNotEmpty()) CompareButton(eq, vm)
+            if (caps.supportsEnable) androidx.compose.material3.Switch(eq.enabled, vm::setEqEnabled)
+            if (eq.bands.isNotEmpty()) CompareButton(eq, caps, vm)
             if (eq.bands.isNotEmpty()) {
                 FilledTonalIconButton(onClick = { vm.setEqFlat(); onManualEdit() }) {
                     Icon(Icons.Outlined.RestartAlt, "Reset to flat")
@@ -274,8 +287,9 @@ private fun EqualizerHero(eq: EqState, presets: List<Pair<Int, String>>, vm: Hea
             Spacer(Modifier.height(Space.l))
             Row(Modifier.fillMaxWidth().padding(horizontal = Space.m)) {
                 eq.bands.forEachIndexed { i, raw ->
-                    val label = if (eq.bands.size == Labels.sixBands.size) Labels.sixBands[i] else "${i + 1}"
-                    EqBand(label, raw, Modifier.weight(1f)) { vm.setEqBand(i, it); onManualEdit() }
+                    caps.bandSpecs.getOrNull(i)?.let { band ->
+                        EqBand(band, raw, Modifier.weight(1f)) { vm.setEqBand(i, it); onManualEdit() }
+                    }
                 }
             }
         } else {
@@ -290,34 +304,44 @@ private fun EqualizerHero(eq: EqState, presets: List<Pair<Int, String>>, vm: Hea
 }
 
 /**
- * Hold to hear the sound without EQ (preset Off), release to go back: a quick A/B of the current curve.
- * Writable slots are restored with their levels, factory presets by selecting them again.
+ * Hold to compare against bypass, Sony's Off preset, or a flat curve when bypass is unavailable.
+ * Release restores the captured curve only on the original device and layout.
  */
 @Composable
-private fun CompareButton(eq: EqState, vm: HeadphonesController) {
+private fun CompareButton(eq: EqState, caps: EqCapability, vm: HeadphonesController) {
     var holding by remember { mutableStateOf(false) }
+    val headset by vm.state.collectAsState()
     // The press handler outlives recompositions (selecting Off changes `eq`), so read the latest value through this.
     val current by rememberUpdatedState(eq)
+    val compareWithFlat = !caps.supportsEnable && caps.namespace != "sony-mdr"
     val scale by animateFloatAsState(if (holding) 1.15f else 1f, MaterialTheme.motionScheme.fastSpatialSpec(), label = "ab")
     Surface(
         shape = CircleShape,
         color = if (holding) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
         contentColor = if (holding) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
         modifier = Modifier.padding(end = Space.s).size(40.dp).scale(scale)
-            .semantics { contentDescription = "Hold to hear without equalizer" }
-            .pointerInput(Unit) {
+            .semantics { contentDescription = if (compareWithFlat) "Hold to compare with flat EQ" else "Hold to hear without equalizer" }
+            .pointerInput(caps.layoutId, caps.supportsEnable, headset.address, headset.phase) {
                 detectTapGestures(onPress = {
                     val before = current
-                    if (before.presetId == 0x00) return@detectTapGestures // already flat
+                    if (!before.enabled || (caps.namespace == "sony-mdr" && before.presetId == 0x00)) return@detectTapGestures
+                    val address = vm.state.value.address
                     holding = true
-                    vm.selectEqPreset(0x00)
+                    when {
+                        caps.supportsEnable -> vm.setEqEnabled(false)
+                        caps.namespace == "sony-mdr" -> vm.selectEqPreset(0x00, caps.namespace)
+                        else -> {
+                            if (!vm.applyEqBands(caps.bandSpecs.map { it.neutral }, caps.layoutId)) {
+                                holding = false
+                                return@detectTapGestures
+                            }
+                        }
+                    }
                     try {
                         tryAwaitRelease()
                     } finally {
                         holding = false
-                        if (before.presetId in HeadphonesController.WRITABLE_PRESETS && before.bands.isNotEmpty()) {
-                            vm.writeEqPreset(before.presetId, before.bands)
-                        } else vm.selectEqPreset(before.presetId)
+                        vm.restoreEq(before, caps.layoutId, address)
                     }
                 })
             },
@@ -332,19 +356,25 @@ private fun CompareButton(eq: EqState, vm: HeadphonesController) {
  * Custom 1/2) plus the phone-side EQ library, which is written into Manual when picked.
  */
 @Composable
-private fun PresetPicker(eq: EqState, presets: List<Pair<Int, String>>, library: List<SavedEq>, vm: HeadphonesController, modifier: Modifier) {
+private fun PresetPicker(eq: EqState, caps: EqCapability, presets: List<Pair<Int, String>>, library: List<SavedEq>, vm: HeadphonesController, modifier: Modifier) {
     val (sony, yours) = splitPresets(presets)
     Column(modifier) {
-        SectionHeader("Sony presets", top = Space.s)
-        PresetChips(sony.map { (id, name) -> Triple(name, eq.presetId == id) { vm.selectEqPreset(id) } })
+        if (sony.isNotEmpty()) {
+            SectionHeader("Factory presets", top = Space.s)
+            PresetChips(sony.map { (id, name) -> Triple(name, eq.presetId == id && eq.enabled) { vm.selectEqPreset(id, caps.namespace) } })
+        }
+        if (caps.namespace != "sony-mdr") {
+            SectionHeader("Equalizer", top = Space.s)
+            PresetChips(listOf(Triple("Flat", eq.enabled && eq.bands == caps.bandSpecs.map { it.neutral }) { vm.setEqFlat() }))
+        }
         SectionHeader("Your presets")
-        val usable = library.filter { it.levels.size == eq.bands.size }
+        val usable = library.filter { it.compatibleLayout(caps) != null }
         PresetChips(
-            yours.map { (id, name) -> Triple(name, eq.presetId == id) { vm.selectEqPreset(id) } } +
+            yours.map { (id, name) -> Triple(name, eq.presetId == id && eq.enabled) { vm.selectEqPreset(id, caps.namespace) } } +
                 usable.map { item ->
                     // A library curve counts as active while Manual holds exactly its levels.
-                    val active = eq.presetId == HeadphonesController.CUSTOM_PRESET && eq.bands == item.levels
-                    Triple(item.name, active) { vm.writeEqPreset(HeadphonesController.CUSTOM_PRESET, item.levels) }
+                    val active = eq.enabled && eq.bands == item.levels
+                    Triple(item.name, active) { vm.applySavedEq(item); Unit }
                 },
         )
     }
@@ -377,11 +407,11 @@ private fun PresetChips(items: List<Triple<String, Boolean, () -> Unit>>) {
 
 /** One band: 0..20 with 10 as flat, shown as -10..+10 dB-ish steps. */
 @Composable
-private fun EqBand(label: String, raw: Int, modifier: Modifier, onCommit: (Int) -> Unit) {
-    val state = remember { SliderState(value = raw.toFloat(), steps = 19, valueRange = 0f..20f) }
-    state.onValueChangeFinished = { onCommit(state.value.roundToInt()) }
+private fun EqBand(band: EqBandSpec, raw: Int, modifier: Modifier, onCommit: (Int) -> Unit) {
+    val state = remember(band) { SliderState(value = raw.toFloat(), steps = ((band.max - band.min) / band.uiStep - 1).coerceAtLeast(0), valueRange = band.min.toFloat()..band.max.toFloat()) }
+    state.onValueChangeFinished = { onCommit((band.neutral + ((state.value - band.neutral) / band.uiStep).roundToInt() * band.uiStep).coerceIn(band.min, band.max)) }
     LaunchedEffect(raw) { if (!state.isDragging) state.value = raw.toFloat() }
-    val db = state.value.roundToInt() - 10
+    val db = band.toDb(state.value.roundToInt())
     val layout = LocalLayout.current
     val height = when {
         layout.compactHeight -> 140.dp
@@ -390,16 +420,21 @@ private fun EqBand(label: String, raw: Int, modifier: Modifier, onCommit: (Int) 
     }
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            if (db > 0) "+$db" else "$db",
+            formatEqDb(db),
             style = MaterialTheme.typography.labelLarge,
-            color = if (db == 0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+            color = if (db == 0.0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
         )
         Spacer(Modifier.height(Space.s))
         VerticalSlider(state = state, modifier = Modifier.height(height), reverseDirection = true, colors = quietSliderColors())
         Spacer(Modifier.height(Space.s))
         Text(
-            label, style = MaterialTheme.typography.labelMedium, maxLines = 2, textAlign = TextAlign.Center,
+            band.label, style = MaterialTheme.typography.labelMedium, maxLines = 2, textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+internal fun formatEqDb(db: Double): String {
+    val value = if (kotlin.math.abs(db - db.roundToInt()) < 0.001) db.roundToInt().toString() else "%.2f".format(java.util.Locale.ROOT, db).trimEnd('0').trimEnd('.')
+    return if (db > 0) "+$value" else value
 }

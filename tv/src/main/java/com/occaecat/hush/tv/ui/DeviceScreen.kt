@@ -18,6 +18,10 @@ import androidx.compose.material.icons.outlined.Timelapse
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import com.occaecat.hush.HeadphonesController
 import com.occaecat.hush.HeadphonesState
 import com.occaecat.hush.Phase
@@ -27,10 +31,21 @@ private val TouchTitles = setOf("TOUCH_PANEL_SETTING", "TOUCH_SENSOR_CONTROL_PAN
 
 @Composable
 fun DeviceScreen(state: HeadphonesState, vm: HeadphonesController) {
+    var buttons by rememberSaveable { mutableStateOf(false) }
+    if (buttons) {
+        JabraButtonsScreen(state, vm) { buttons = false }
+        return
+    }
     val dialogs = rememberDialogState()
     val busy = state.audioSettling || state.phase != Phase.CONNECTED
     SectionScaffold("Device") {
         if (sessionBanner(state, vm)) {
+            if (state.isJabra) {
+                item { SectionHeader("Buttons") }
+                item {
+                    ValueRow(Icons.Outlined.TouchApp, "Button controls", "Music and call assignments", enabled = !busy) { buttons = true }
+                }
+            }
             state.speakToChat?.let { stc ->
                 item { SectionHeader("Speak-to-Chat") }
                 item {
@@ -63,6 +78,7 @@ fun DeviceScreen(state: HeadphonesState, vm: HeadphonesController) {
                 }
             }
 
+            if (state.capabilities.optimizer) {
             item { SectionHeader("NC optimizer") }
             item {
                 val r = state.optimizerResult
@@ -79,6 +95,7 @@ fun DeviceScreen(state: HeadphonesState, vm: HeadphonesController) {
                 ) { if (state.optimizerRunning) vm.cancelOptimizer() else vm.startOptimizer() }
             }
 
+            }
             val multipoint = state.generalSettings.values.firstOrNull { it.title == "MULTIPOINT_SETTING" }
             multipoint?.let { gs ->
                 state.generalValues[gs.id]?.let { on ->
@@ -128,14 +145,28 @@ fun DeviceScreen(state: HeadphonesState, vm: HeadphonesController) {
             state.pauseWhenRemoved?.let { on ->
                 item {
                     SwitchRow(
-                        Icons.Outlined.PauseCircleOutline, "Pause when taken off",
-                        if (state.pauseWhenRemovedAvailable) "Resume when you put them back on" else "Not available right now",
+                        Icons.Outlined.PauseCircleOutline, Labels.autoPauseTitle(state),
+                        Labels.autoPauseSupporting(state),
                         on, enabled = state.pauseWhenRemovedAvailable, onCheckedChange = vm::setPauseWhenRemoved,
                     )
                 }
             }
 
             item { SectionHeader("Power & system") }
+            state.sleepMinutes?.let { minutes -> item {
+                ValueRow(Icons.Outlined.Timer, "Sleep mode", if (minutes == 0) "Never" else "$minutes minutes") {
+                    dialogs.choice = Choice("Sleep after inactivity", listOf(0 to "Never", 15 to "15 minutes", 30 to "30 minutes", 60 to "60 minutes", 120 to "120 minutes"), minutes, vm::setSleepMinutes)
+                }
+            } }
+            state.announcementMode?.let { mode -> item {
+                val choices = listOf(0 to "Tones", 1 to "Voice guidance", 2 to "Off")
+                ValueRow(Icons.Outlined.Campaign, "Announcements", choices.firstOrNull { it.first == mode }?.second) {
+                    dialogs.choice = Choice("Announcements", choices, mode, vm::setAnnouncementMode)
+                }
+            } }
+            state.batteries.forEach { battery -> item {
+                InfoRow(Icons.Outlined.Info, battery.label + " battery", (battery.level?.let { "$it%" } ?: "Unknown") + if (battery.charging == true) " \u00b7 charging" else "")
+            } }
             state.autoPowerOff?.let { (active, _) ->
                 item {
                     ValueRow(Icons.Outlined.Timer, "Automatic power off", Labels.autoPowerOff[active] ?: Labels.hex(active)) {
@@ -167,7 +198,7 @@ fun DeviceScreen(state: HeadphonesState, vm: HeadphonesController) {
                 dialogs.confirm = Confirm("Hush stops using $name until you pick them again. The Bluetooth pairing stays.", "Forget", vm::forget)
             }
         }
-        if (state.phase == Phase.CONNECTED) item {
+        if (state.phase == Phase.CONNECTED && state.capabilities.powerOff) item {
             ValueRow(Icons.Outlined.PowerSettingsNew, "Turn off headphones", null) {
                 dialogs.confirm = Confirm("Turn the headphones off now?", "Turn off") { vm.powerOff() }
             }

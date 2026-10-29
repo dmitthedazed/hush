@@ -15,6 +15,9 @@ data class CardSnapshot(
     val battery: Int?,
     val charging: Boolean,
     val mode: AmbientMode?,
+    val brand: HeadphoneBrand = HeadphoneBrand.SONY,
+    val noiseModes: Set<AmbientMode> = AmbientMode.entries.toSet(),
+    val components: List<BatteryComponent> = emptyList(),
 ) {
     constructor(s: HeadphonesState) : this(
         address = s.address,
@@ -24,6 +27,7 @@ data class CardSnapshot(
         battery = s.battery,
         charging = s.charging,
         mode = s.ncAsm?.mode,
+        brand = s.brand, noiseModes = s.capabilities.noiseModes, components = s.batteries,
     )
 }
 
@@ -36,7 +40,7 @@ data class CardSnapshot(
  * its built-in allowlist are read; the Xposed hook in [com.occaecat.hush.xposed.HushModule] adds ours.
  */
 object DeviceCard {
-    const val AUTHORITY = "com.occaecat.hush.devicecard"
+    const val AUTHORITY = BuildConfig.APPLICATION_ID + ".devicecard"
     const val TABLE = "device_info_table_new"
     val URI: Uri = Uri.parse("content://$AUTHORITY/$TABLE")
 
@@ -81,8 +85,8 @@ object DeviceCard {
             .put("mMacAddress", address)
             // HEADSET makes My Devices drop mDeviceIcon and use the picture below.
             .put("mDeviceType", "HEADSET")
-            .put("iconUrl", ICON)
-            .put("mIconUrl", ICON)
+            .put("iconUrl", if (s.brand == HeadphoneBrand.JABRA) EARBUD_ICON else ICON)
+            .put("mIconUrl", if (s.brand == HeadphoneBrand.JABRA) EARBUD_ICON else ICON)
             .put("mBatteryInfoList", batteries)
             .put("mBatteryList", levels)
             .put("connection", JSONObject()
@@ -99,7 +103,7 @@ object DeviceCard {
             .put("feature", 0)
             .put("linkageVersion", 0)
             .put("autoSwitch", false)
-            .put("shortcuts", if (s.connected) shortcuts(s.mode) else JSONArray())
+            .put("shortcuts", if (s.connected) shortcuts(s.mode, s.noiseModes, s.brand == HeadphoneBrand.JABRA) else JSONArray())
             .put("revision", revision)
     }
 
@@ -107,17 +111,18 @@ object DeviceCard {
      * Card buttons. componentType 2 (provider) makes My Devices call `call(content://AUTHORITY, method, …)` with
      * `extra` in the bundle (remotecards/utils/CardsUtils.b); type 1 would need a signature-only permission.
      */
-    private fun shortcuts(current: AmbientMode?): JSONArray {
+    private fun shortcuts(current: AmbientMode?, supported: Set<AmbientMode>, jabra: Boolean): JSONArray {
         val out = JSONArray()
         for ((mode, label) in listOf(
             AmbientMode.NOISE_CANCELLING to "Noise cancelling",
             AmbientMode.AMBIENT to "Ambient sound",
             AmbientMode.OFF to "Off",
         )) {
+            if (mode !in supported) continue
             val extra = JSONObject().put("authority", AUTHORITY).put("method", METHOD_MODE).put("extra", mode.name)
             out.put(JSONObject()
                 .put("shortcutId", "hush_mode_" + mode.name.lowercase())
-                .put("shortcutName", label)
+                .put("shortcutName", if (jabra && mode == AmbientMode.AMBIENT) "HearThrough" else label)
                 .put("action", "")
                 .put("links", "")
                 .put("componentType", 2)
@@ -128,5 +133,6 @@ object DeviceCard {
         return out
     }
 
-    private const val ICON = "android.resource://com.occaecat.hush/drawable/card_xm4"
+    private const val EARBUD_ICON = "android.resource://" + BuildConfig.APPLICATION_ID + "/drawable/earbuds"
+    private const val ICON = "android.resource://" + BuildConfig.APPLICATION_ID + "/drawable/card_xm4"
 }

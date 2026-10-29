@@ -73,7 +73,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.occaecat.hush.HeadphonesController
 import com.occaecat.hush.autoeq.AutoEq
+import com.occaecat.hush.mdr.EqCapability
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlin.math.log10
 import kotlin.math.roundToInt
 
@@ -90,7 +93,7 @@ private sealed interface Load<out T> {
 @Composable
 fun AutoEqSheet(
     modelName: String?,
-    bandCount: Int,
+    capability: EqCapability,
     /** The preset slot Apply writes to (the active Manual / Custom slot, else Manual). */
     targetPreset: Int,
     vm: HeadphonesController,
@@ -98,6 +101,9 @@ fun AutoEqSheet(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
+    val caps = remember { capability }
+    val address = remember { vm.state.value.address }
+    val intendedPreset = remember { targetPreset }
     val scope = rememberCoroutineScope()
     var reload by remember { mutableIntStateOf(0) }
     var index by remember { mutableStateOf<Load<List<AutoEq.Entry>>>(Load.Loading) }
@@ -112,14 +118,18 @@ fun AutoEqSheet(
     var query by rememberSaveable { mutableStateOf(modelName.orEmpty()) }
     var picked by remember { mutableStateOf<AutoEq.Entry?>(null) }
     var fit by remember { mutableStateOf<Load<AutoEq.Fit>>(Load.Loading) }
+    var fitJob by remember { mutableStateOf<Job?>(null) }
 
     fun pick(entry: AutoEq.Entry) {
+        fitJob?.cancel()
         picked = entry
         fit = Load.Loading
-        scope.launch {
+        fitJob = scope.launch {
             fit = try {
-                AutoEq.fit(AutoEq.curve(entry), bandCount)?.let { Load.Ready(it) }
+                AutoEq.fit(AutoEq.curve(entry), caps)?.let { Load.Ready(it) }
                     ?: Load.Failed("This headset's equalizer can't be matched to AutoEq curves")
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Load.Failed(e.message ?: "Network error")
             }
@@ -146,14 +156,15 @@ fun AutoEqSheet(
                 SearchPage(query, { query = it }, index, onRetry = { reload++ }, onPick = ::pick)
             } else {
                 PreviewPage(
-                    entry, fit, Labels.presetNames[targetPreset] ?: "Manual",
+                    entry, fit, if (caps.namespace == "sony-mdr") Labels.presetNames[intendedPreset] ?: "Manual" else "Current EQ", caps,
                     onBack = { picked = null },
                     onRetry = { pick(entry) },
                     onApply = { levels ->
-                        vm.applyEqBands(levels)
-                        AutoEq.rememberApplied(context, entry, targetPreset)
-                        onApplied(entry)
-                        onDismiss()
+                        if (vm.state.value.address == address && vm.applyEqBands(levels, caps.layoutId)) {
+                            AutoEq.rememberApplied(context, entry, intendedPreset, caps.layoutId, address, levels)
+                            onApplied(entry)
+                            onDismiss()
+                        } else fit = Load.Failed("The connected equalizer changed. Close this sheet and choose the profile again.")
                     },
                 )
             }
@@ -239,6 +250,7 @@ private fun PreviewPage(
     entry: AutoEq.Entry,
     fit: Load<AutoEq.Fit>,
     targetName: String,
+    caps: EqCapability,
     onBack: () -> Unit,
     onRetry: () -> Unit,
     onApply: (List<Int>) -> Unit,
@@ -267,7 +279,7 @@ private fun PreviewPage(
                         Spacer(Modifier.height(Space.s))
                         Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
                             Legend("AutoEq target", MaterialTheme.colorScheme.outline, dashed = true)
-                            Legend("Your headphones", MaterialTheme.colorScheme.primary)
+                            Legend(if (f.approximate) "Requested band gains" else "Your headphones", MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
@@ -275,7 +287,8 @@ private fun PreviewPage(
                 // The six levels that will be written.
                 Row(Modifier.fillMaxWidth().padding(horizontal = Space.m), horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
                     f.levels.forEachIndexed { i, lv ->
-                        val db = lv - 10
+                        val spec = caps.bandSpecs[i]
+                        val db = spec.toDb(lv)
                         Surface(
                             Modifier.weight(1f),
                             shape = RoundedCornerShape(16.dp),
@@ -283,12 +296,12 @@ private fun PreviewPage(
                         ) {
                             Column(Modifier.padding(vertical = Space.s), horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    if (db > 0) "+$db" else "$db",
+                                    formatEqDb(db),
                                     style = MaterialTheme.typography.titleMedium,
-                                    color = if (db == 0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                                    color = if (db == 0.0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
                                 )
                                 Text(
-                                    if (i == 0) "Bass" else Labels.sixBands[i],
+                                    spec.label,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -298,7 +311,8 @@ private fun PreviewPage(
                     }
                 }
                 Text(
-                    "Within ${"%.1f".format(f.rmsError)} dB of the target on average. The headset has six fixed bands, " +
+                    if (f.approximate) "Approximate correction sampled at the headphones' reported band frequencies. The graph shows requested gains, not measured sound. Saved to $targetName."
+                    else "Within ${"%.1f".format(f.rmsError)} dB of the target on average. The headset has ${caps.bandCount} fixed bands, " +
                         "so narrow peaks and dips can't be corrected. Saved to $targetName.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -311,7 +325,7 @@ private fun PreviewPage(
                     var saved by remember(entry) { mutableStateOf(false) }
                     OutlinedButton(
                         onClick = {
-                            com.occaecat.hush.sound.SoundStore.saveEq(entry.name, f.levels, "AutoEq · ${entry.detail}")
+                            com.occaecat.hush.sound.SoundStore.saveEq(entry.name, f.levels, "AutoEq · ${entry.detail}", caps.layoutId)
                             saved = true
                         },
                         enabled = !saved,

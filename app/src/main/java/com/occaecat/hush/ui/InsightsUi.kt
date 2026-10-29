@@ -73,25 +73,26 @@ private fun hours(h: Double) = when {
 /** The three Insights rows on the Device tab. */
 @Composable
 fun InsightsSection(state: HeadphonesState, modifier: Modifier, open: (String) -> Unit) {
-    val data by Insights.data.collectAsState()
+    val allData by Insights.data.collectAsState()
+    val data = Insights.forDevice(allData, state)
     val connected = state.phase == Phase.CONNECTED || state.phase == Phase.RECONNECTING
     val level = state.battery?.takeIf { connected }
     val nc = state.ncAsm?.mode == AmbientMode.NOISE_CANCELLING
-    val left = level?.let { it / Insights.drain(nc, data.battery).percentPerHour }
+    val left = level?.let { it / Insights.drain(nc, data.battery, state.isSony).percentPerHour }?.takeIf { it.isFinite() }
     val dose = Insights.weeklyDose(data.days)
     val seen = data.lastSeen
     Column(modifier) {
         SectionHeader("Insights", top = Space.s)
         SegmentedGroup {
-            ValueRow(0, 3, Icons.Outlined.BatteryChargingFull, "Battery",
+            ValueRow(0, if (state.isSony) 3 else 2, Icons.Outlined.BatteryChargingFull, "Battery",
                 when {
                     level != null && state.charging -> "$level% · charging"
                     level != null && left != null -> "$level% · about ${hours(left)} left"
                     else -> data.battery.lastOrNull()?.let { "Last seen at ${it.level}%" } ?: "No data yet"
                 }) { open("battery") }
-            ValueRow(1, 3, Icons.Outlined.Hearing, "Hearing",
+            if (state.isSony) ValueRow(1, 3, Icons.Outlined.Hearing, "Hearing",
                 if (data.days.isEmpty()) "No listening recorded yet" else "This week ${(dose * 100).roundToInt()}% of the safe limit") { open("hearing") }
-            ValueRow(2, 3, Icons.Outlined.LocationOn, "Find my headphones",
+            ValueRow(if (state.isSony) 2 else 1, if (state.isSony) 3 else 2, Icons.Outlined.LocationOn, "Find my headphones",
                 when {
                     connected -> "Connected now"
                     seen != null -> "Last connected " + DateUtils.getRelativeTimeSpanString(seen.t)
@@ -112,11 +113,12 @@ fun InsightsPage(which: String, state: HeadphonesState, onClose: () -> Unit) = w
 
 @Composable
 private fun BatteryPage(state: HeadphonesState, onClose: () -> Unit) {
-    val data by Insights.data.collectAsState()
+    val allData by Insights.data.collectAsState()
+    val data = Insights.forDevice(allData, state)
     val connected = state.phase == Phase.CONNECTED || state.phase == Phase.RECONNECTING
     val nc = state.ncAsm?.mode == AmbientMode.NOISE_CANCELLING
-    val drainNc = Insights.drain(true, data.battery)
-    val drainOff = Insights.drain(false, data.battery)
+    val drainNc = Insights.drain(true, data.battery, state.isSony)
+    val drainOff = Insights.drain(false, data.battery, state.isSony)
     val level = state.battery?.takeIf { connected } ?: data.battery.lastOrNull()?.level
     FullScreenPage("Battery", onClose) {
         Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
@@ -127,24 +129,27 @@ private fun BatteryPage(state: HeadphonesState, onClose: () -> Unit) {
                     when {
                         state.charging && connected -> "Charging"
                         level == null -> "Connect the headphones to start measuring"
+                        !d.percentPerHour.isFinite() -> "Learning battery life from this device"
                         else -> "About ${hours(level / d.percentPerHour)} left with noise canceling ${if (nc) "on" else "off"}"
                     },
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
-                    if (d.measured) "Measured over ${hours(d.hoursMeasured)} of use" else "Sony's rating until Hush has measured 2 hours (${hours(d.hoursMeasured)} so far)",
+                    if (d.measured) "Measured over ${hours(d.hoursMeasured)} of use" else if (!state.isSony) "An estimate appears after at least 2 hours of observed discharge" else "Sony's rating until Hush has measured 2 hours (${hours(d.hoursMeasured)} so far)",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
         SectionHeader("Last 48 hours")
         BatteryChart(data.battery, Modifier.fillMaxWidth().height(160.dp))
+        if (drainNc.percentPerHour.isFinite() && drainOff.percentPerHour.isFinite()) {
         SectionHeader("Drain")
         SegmentedGroup {
             InfoRow(0, 2, Icons.Outlined.BatteryChargingFull, "Noise canceling on",
                 "%.1f%% an hour · a full charge ≈ %s".format(drainNc.percentPerHour, hours(100 / drainNc.percentPerHour)) + if (drainNc.measured) "" else " (rated)")
             InfoRow(1, 2, Icons.Outlined.BatteryChargingFull, "Ambient or off",
                 "%.1f%% an hour · a full charge ≈ %s".format(drainOff.percentPerHour, hours(100 / drainOff.percentPerHour)) + if (drainOff.measured) "" else " (rated)")
+        }
         }
         Text(
             "The battery is the headphones' own, so listening on a laptop or another phone drains it too. Hush measures " +
@@ -193,7 +198,8 @@ private fun BatteryChart(samples: List<Insights.BatterySample>, modifier: Modifi
 
 @Composable
 private fun HearingPage(state: HeadphonesState, onClose: () -> Unit) {
-    val data by Insights.data.collectAsState()
+    val allData by Insights.data.collectAsState()
+    val data = Insights.forDevice(allData, state)
     val dose = Insights.weeklyDose(data.days)
     val today = LocalDate.now()
     val week = (6 downTo 0).map { today.minusDays(it.toLong()) }.map { d -> d to data.days.firstOrNull { it.date == d } }
@@ -255,7 +261,8 @@ private fun HearingPage(state: HeadphonesState, onClose: () -> Unit) {
 @Composable
 private fun FindPage(state: HeadphonesState, onClose: () -> Unit) {
     val context = LocalContext.current
-    val data by Insights.data.collectAsState()
+    val allData by Insights.data.collectAsState()
+    val data = Insights.forDevice(allData, state)
     val seen = data.lastSeen
     val connected = state.phase == Phase.CONNECTED || state.phase == Phase.RECONNECTING
     var permTick by remember { mutableIntStateOf(0) }
