@@ -16,11 +16,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 
 /** Apple accessories. Today: wired EarPods (USB-C), found when plugged in; the model is their identity. */
-@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 object AppleModule : DeviceModule {
     override val id = "apple"
     override val brand = "Apple"
@@ -36,6 +34,8 @@ object AppleModule : DeviceModule {
             "Plug them into the phone's USB-C port. Hush adds a phone-side equalizer, checks they're genuine and " +
                 "links Apple's documentation. You can add them now and plug them in later.",
             addWithoutFinding = true, note = "Fully supported",
+            // Apple's own product shot (MTJY3, EarPods USB-C) from its store image server, downloaded once.
+            imageUrl = "https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/MTJY3?wid=720&hei=720&fmt=png-alpha",
         ),
     )
 
@@ -53,20 +53,10 @@ object AppleModule : DeviceModule {
 
     override fun init(context: Context) {
         EarPods.init(context)
-        val audio = context.getSystemService(android.media.AudioManager::class.java)
-        // Wired: the phone's music volume is what reaches the ears; sampled every half minute while plugged in.
-        com.occaecat.hush.features.Insights.track(context, EarPodsController.insightsProfile, EarPods.state.flatMapLatest { s ->
-            kotlinx.coroutines.flow.flow {
-                while (true) {
-                    val max = audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-                    emit(com.occaecat.hush.features.Insights.Sample(
-                        connected = s.attached, volume = audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC),
-                        volumeSteps = max + 1,
-                    ))
-                    kotlinx.coroutines.delay(30_000)
-                }
-            }
-        })
+        com.occaecat.hush.features.Insights.track(
+            context, EarPodsController.insightsProfile,
+            com.occaecat.hush.wired.WiredAudio.volumeSamples(context, EarPods.state.map { it.attached }.distinctUntilChanged()),
+        )
     }
 
     override fun controller(device: Device): DeviceController = EarPodsController

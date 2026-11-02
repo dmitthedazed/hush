@@ -66,13 +66,13 @@ import kotlinx.coroutines.flow.stateIn
 object EarPodsController : DeviceController {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    override val state: StateFlow<DeviceState> = EarPods.state.map(::deviceState)
+    override val state: StateFlow<DeviceState> = kotlinx.coroutines.flow.combine(EarPods.state, EarPods.eq.settings) { s, _ -> deviceState(s) }
         .stateIn(scope, SharingStarted.Eagerly, deviceState(EarPods.state.value))
 
     private fun deviceState(s: EarPods.State): DeviceState {
         // Android lists every rate its resampler accepts; the descriptors say what the hardware runs (48 kHz only).
         val native = s.report?.items?.any { it.title == "Audio formats" && it.result == EarPodsCheck.Result.PASS } == true
-        val eqLabel = if (s.eq.enabled) "EQ ${s.eq.presetName}" else null
+        val eqLabel = EarPods.eq.label
         return DeviceState(
             name = "EarPods",
             connection = if (s.attached) Connection.CONNECTED else Connection.DISCONNECTED,
@@ -122,31 +122,17 @@ object EarPodsController : DeviceController {
     /** No battery; the phone's volume scale is taken to reach about 100 dB(A) at the top, like most wired buds. */
     val insightsProfile = com.occaecat.hush.features.Insights.Profile(key = "apple:earpods-usb-c", noun = "EarPods")
     override val insights = insightsProfile
+    override val microphone = com.occaecat.hush.devices.Microphone(
+        com.occaecat.hush.devices.Transport.USB, note = "The inline mic records at 48 kHz over USB, the same as in calls.",
+    )
     override val sleepTarget = com.occaecat.hush.features.PhoneSleepTarget(EarPods.appContext, "EarPods")
 
     override fun renderBitmap(context: Context): android.graphics.Bitmap? = AppleRender.cached(context)
 
     /** Widgets: the phone-side equalizer as a switch. */
-    override val quick = object : com.occaecat.hush.devices.QuickControls {
-        override val modes = kotlinx.coroutines.flow.MutableStateFlow(emptyList<com.occaecat.hush.devices.QuickMode>())
-        override fun setMode(id: String) {}
-        override fun cycleMode() = EarPods.setEqEnabled(!EarPods.state.value.eq.enabled)
-        override val toggles = EarPods.state.map { s ->
-            listOf(com.occaecat.hush.devices.QuickToggle("eq", "Equalizer · ${s.eq.presetName}", s.eq.enabled, true))
-        }.stateIn(scope, SharingStarted.Eagerly, emptyList())
-        override fun toggle(id: String) = EarPods.setEqEnabled(!EarPods.state.value.eq.enabled)
-    }
+    override val quick get() = EarPods.eq.quick
 
-    override fun soundSections(scope: LazyStaggeredGridScope) {
-        scope.item {
-            val s by EarPods.state.collectAsState()
-            if (s.eq.correction != null) SegmentedGroup(ItemWidth.padding(top = Space.s)) {
-                SwitchRow(0, 1, Icons.Outlined.GraphicEq, "Apply AutoEq correction",
-                    s.eq.correction?.let { "${it.name} · ${it.detail}" }, s.eq.correctionOn,
-                    enabled = s.eq.enabled, onCheckedChange = EarPods::setCorrectionOn)
-            }
-        }
-    }
+    override fun soundSections(scope: LazyStaggeredGridScope) = EarPods.eq.soundSections(scope)
 
     override fun deviceSections(scope: LazyStaggeredGridScope) {
         scope.item { val s by EarPods.state.collectAsState(); Authenticity(s) }
@@ -154,59 +140,5 @@ object EarPodsController : DeviceController {
         scope.item { val s by EarPods.state.collectAsState(); AppleDocs(s) }
     }
 
-    override val equalizer = object : Equalizer {
-        override val state: StateFlow<EqUi?> = EarPods.state.map { s ->
-            val eq = s.eq
-            EqUi(
-                preset = if (!eq.enabled) "Off"
-                    else listOfNotNull(eq.presetName, eq.correction?.takeIf { eq.correctionOn }?.let { "AutoEq" }).joinToString(" + "),
-                levels = eq.gains,
-                labels = SoftEq.labels,
-                range = -SoftEq.MAX_DB..SoftEq.MAX_DB,
-                enabled = eq.enabled,
-            )
-        }.stateIn(scope, SharingStarted.Eagerly, null)
-
-        override val presets: StateFlow<List<PresetGroup>> = EarPods.state.map { s ->
-            listOf(PresetGroup("Presets", SoftEq.presets.map { Preset(it.name, it.name, s.eq.gains == it.gains) }))
-        }.stateIn(scope, SharingStarted.Eagerly, emptyList())
-
-        override val layout = "phone-10"
-        override fun applyLevels(levels: List<Int>) = EarPods.setGains(levels)
-        override fun setBand(index: Int, level: Int) = EarPods.setBand(index, level)
-        override fun selectPreset(id: String) { SoftEq.presets.firstOrNull { it.name == id }?.let { EarPods.setGains(it.gains) } }
-        override fun reset() = EarPods.setGains(List(SoftEq.bands.size) { 0 })
-        override fun compare(pressed: Boolean) = EarPods.bypass(pressed)
-        override val toggle: (Boolean) -> Unit = EarPods::setEqEnabled
-
-        @Composable
-        override fun HeroExtra() {
-            val s by EarPods.state.collectAsState()
-            s.eqError?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(horizontal = Space.l, vertical = Space.s))
-            }
-            Spacer(Modifier.height(Space.m))
-            ResponseCurve(s.eq, Modifier.fillMaxWidth().height(64.dp).padding(horizontal = Space.l))
-        }
-
-        override val autoEqApplied: StateFlow<String?> = EarPods.state.map { s ->
-            s.eq.correction?.takeIf { s.eq.correctionOn }?.let { "${it.name} · ${it.detail}" }
-        }.stateIn(scope, SharingStarted.Eagerly, null)
-
-        /** A phone-side EQ takes the curve as it is, so the "fit" is exact. */
-        override val autoEq = object : AutoEqTarget {
-            override val label = "the phone's equalizer, under your bands"
-            override val exactName = "Apple EarPods"
-
-            override fun fit(curve: List<AutoEq.Point>): AutoEq.Fit {
-                val pts = curve.filter { it.hz in 20.0..16_000.0 }
-                val mean = pts.map { it.db }.average()
-                val shape = pts.map { AutoEq.Point(it.hz, it.db - mean) }
-                return AutoEq.Fit(emptyList(), shape, shape, 0.0)
-            }
-
-            override fun apply(entry: AutoEq.Entry, curve: List<AutoEq.Point>, fit: AutoEq.Fit) = EarPods.setCorrection(entry, curve)
-        }
-    }
+    override val equalizer get() = EarPods.eq
 }

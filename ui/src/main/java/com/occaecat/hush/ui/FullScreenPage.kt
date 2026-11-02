@@ -3,6 +3,12 @@
 package com.occaecat.hush.ui
 
 import android.Manifest
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.runtime.CompositionLocalProvider
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -131,7 +137,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** A full-screen page over the app (same frame as Find Your Equalizer): close button, title, scrolling body. */
+/**
+ * A full-screen page over the app (same frame as Find Your Equalizer): close button, title, scrolling body. Opened as
+ * a destination of the app's navigation ([LocalInNav]) it is drawn in place with a back arrow, grows out of the row
+ * that opened it ([sharedPage]) and leaves with the navigation's predictive back; anywhere else it is its own window.
+ */
 @Composable
 fun FullScreenPage(
     title: String,
@@ -139,24 +149,64 @@ fun FullScreenPage(
     bottomBar: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    if (LocalInNav.current) {
+        val key = LocalPageKey.current
+        // Pages this one opens itself are windows over it again.
+        CompositionLocalProvider(LocalInNav provides false, LocalPageKey provides null) {
+            Surface(
+                Modifier.fillMaxSize().then(if (key != null) Modifier.sharedPage(key) else Modifier),
+                color = MaterialTheme.colorScheme.surface,
+            ) { PageFrame(title, onClose, back = true, bottomBar, content) }
+        }
+        return
+    }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize().predictiveBack(onBack = onClose), color = MaterialTheme.colorScheme.surface) {
-            Column(Modifier.fillMaxSize()) {
-                TopAppBar(
-                    title = { Text(title) },
-                    navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Close") } },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
-                )
-                Column(
-                    Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = Space.m),
-                    content = content,
-                )
-                if (bottomBar != null) {
-                    Box(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(Space.m)) { bottomBar() }
-                } else {
-                    Spacer(Modifier.windowInsetsPadding(WindowInsets.navigationBars))
-                }
-            }
+            PageFrame(title, onClose, back = false, bottomBar, content)
         }
     }
 }
+
+@Composable
+private fun PageFrame(
+    title: String,
+    onClose: () -> Unit,
+    back: Boolean,
+    bottomBar: (@Composable () -> Unit)?,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val scroll = TopAppBarDefaults.pinnedScrollBehavior()
+    Column(Modifier.fillMaxSize().nestedScroll(scroll.nestedScrollConnection)) {
+        TopAppBar(
+            title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            navigationIcon = {
+                IconButton(onClick = onClose) {
+                    if (back) Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") else Icon(Icons.Filled.Close, "Close")
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+            scrollBehavior = scroll,
+        )
+        // Pages read as one column: on wide windows it stays at a readable width in the middle.
+        Box(
+            Modifier.weight(1f).fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal)),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            Column(
+                Modifier.widthIn(max = PageMaxWidth).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Space.m),
+                content = content,
+            )
+        }
+        if (bottomBar != null) {
+            Box(
+                Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(Space.m),
+                contentAlignment = Alignment.Center,
+            ) { Box(Modifier.widthIn(max = PageMaxWidth)) { bottomBar() } }
+        } else {
+            Spacer(Modifier.windowInsetsPadding(WindowInsets.navigationBars))
+        }
+    }
+}
+
+private val PageMaxWidth = 720.dp

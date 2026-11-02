@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.occaecat.hush"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.occaecat.hush"
@@ -31,6 +31,9 @@ dependencies {
     implementation(project(":devices:apple"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    testImplementation(libs.junit)
+    implementation(libs.navigation3.runtime)
+    implementation(libs.navigation3.ui)
     // Home screen widgets.
     implementation(libs.glance.appwidget)
     implementation(libs.glance.preview)

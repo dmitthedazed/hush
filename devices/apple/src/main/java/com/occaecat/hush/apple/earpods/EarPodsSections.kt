@@ -119,84 +119,32 @@ private object AppleLinks {
     const val SOUND = "https://www.apple.com/sound/"
 }
 
-/** What the phone will actually do: both layers, drawn over 20 Hz–20 kHz on a ±12 dB scale. */
-@Composable
-internal fun ResponseCurve(eq: SoftEq.Settings, modifier: Modifier) {
-    val line = if (eq.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-    val axis = MaterialTheme.colorScheme.outlineVariant
-    val points = remember(eq) { SoftEq.response(eq) }
-    Canvas(modifier) {
-        fun x(hz: Double) = (ln(hz / 20.0) / ln(1000.0)).toFloat() * size.width
-        fun y(db: Double) = size.height / 2 - (db.coerceIn(-15.0, 15.0) / 15.0).toFloat() * size.height / 2
-        drawLine(axis, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), strokeWidth = 1.dp.toPx())
-        val path = Path()
-        points.forEachIndexed { i, p -> if (i == 0) path.moveTo(x(p.hz), y(p.db)) else path.lineTo(x(p.hz), y(p.db)) }
-        drawPath(path, line, style = Stroke(width = 3.dp.toPx()))
-    }
-}
-
 // --- Authenticity --------------------------------------------------------------------------------------------------
 
 @Composable
 internal fun Authenticity(state: EarPods.State) {
     val report = state.report ?: return
-    var expanded by rememberSaveable { mutableStateOf(false) }
-    val colors = MaterialTheme.colorScheme
-    val (icon, title, body) = when (report.verdict) {
-        EarPodsCheck.Verdict.GENUINE -> Triple(Icons.Outlined.VerifiedUser, "Looks genuine",
-            "Every check matches Apple’s EarPods (USB-C).")
-        EarPodsCheck.Verdict.LIKELY -> Triple(Icons.Outlined.GppGood, "Probably genuine",
+    val (verdict, title, body) = when (report.verdict) {
+        EarPodsCheck.Verdict.GENUINE -> Triple(AuthVerdict.GENUINE, "Looks genuine", "Every check matches Apple’s EarPods (USB-C).")
+        EarPodsCheck.Verdict.LIKELY -> Triple(AuthVerdict.LIKELY, "Probably genuine",
             "Nothing contradicts it so far. Allow USB access for the full check.")
-        EarPodsCheck.Verdict.SUSPICIOUS -> Triple(Icons.Outlined.GppMaybe, "Might be a fake",
+        EarPodsCheck.Verdict.SUSPICIOUS -> Triple(AuthVerdict.SUSPICIOUS, "Might be a fake",
             "Some of what these EarPods report doesn’t match Apple’s.")
-        EarPodsCheck.Verdict.NOT_EARPODS -> Triple(Icons.Outlined.GppMaybe, "Not EarPods (USB-C)",
+        EarPodsCheck.Verdict.NOT_EARPODS -> Triple(AuthVerdict.SUSPICIOUS, "Not EarPods (USB-C)",
             "This device doesn’t identify itself as Apple EarPods.")
     }
-    val good = report.verdict == EarPodsCheck.Verdict.GENUINE || report.verdict == EarPodsCheck.Verdict.LIKELY
-    Column(ItemWidth) {
-        SectionHeader("Authenticity")
-        Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
-                .background(if (good) colors.primaryContainer else colors.errorContainer).padding(Space.m),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ShapeBadge(icon, size = 48.dp, polygon = if (good) MaterialShapes.Cookie9Sided else MaterialShapes.Burst,
-                    container = if (good) colors.primary else colors.error, content = if (good) colors.onPrimary else colors.onError)
-                Spacer(Modifier.width(Space.m))
-                Column(Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.titleMediumEmphasized,
-                        color = if (good) colors.onPrimaryContainer else colors.onErrorContainer)
-                    Text("${report.passed} of ${report.items.size} checks passed",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (good) colors.onPrimaryContainer else colors.onErrorContainer)
-                }
-            }
-            Spacer(Modifier.height(Space.s))
-            Text(body, style = MaterialTheme.typography.bodyMedium, color = if (good) colors.onPrimaryContainer else colors.onErrorContainer)
-            Row(Modifier.padding(top = Space.s), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
-                if (!state.hasAccess) Button(onClick = EarPods::requestAccess) { Text("Allow USB access") }
-                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide checks" else "Show checks") }
-            }
-        }
-        if (expanded) {
-            Spacer(Modifier.height(Space.s))
-            SegmentedGroup {
-                report.items.forEachIndexed { i, item ->
-                    InfoRow(i, report.items.size, when (item.result) {
-                        EarPodsCheck.Result.PASS -> Icons.Outlined.CheckCircle
-                        EarPodsCheck.Result.FAIL -> Icons.Outlined.Cancel
-                        EarPodsCheck.Result.UNKNOWN -> Icons.Outlined.HelpOutline
-                    }, item.title, item.detail)
-                }
-            }
-            Text(
-                "This compares what the EarPods report over USB with a genuine pair. EarPods have no cryptographic " +
-                    "authentication, so a perfect copy could still pass; a failed check is the meaningful result. For " +
-                    "certainty, check the serial number with Apple.",
-                style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = Space.m, vertical = Space.s),
-            )
-        }
+    AuthenticitySection(
+        verdict, title, body,
+        report.items.map { AuthItem(it.title, it.detail, when (it.result) {
+            EarPodsCheck.Result.PASS -> true
+            EarPodsCheck.Result.FAIL -> false
+            EarPodsCheck.Result.UNKNOWN -> null
+        }) },
+        "This compares what the EarPods report over USB with a genuine pair. EarPods have no cryptographic " +
+            "authentication, so a perfect copy could still pass; a failed check is the meaningful result. For " +
+            "certainty, check the serial number with Apple.",
+    ) {
+        if (!state.hasAccess) Button(onClick = EarPods::requestAccess) { Text("Allow USB access") }
     }
 }
 

@@ -105,7 +105,9 @@ import com.occaecat.hush.Phase
 fun subtitleFor(state: HeadphonesState) = when (state.phase) {
     Phase.CONNECTED -> listOfNotNull(
         "Connected",
-        state.battery?.let { "$it%" },
+        if (state.trueWireless) listOfNotNull(state.leftBattery?.let { "L ${it.level}%" }, state.rightBattery?.let { "R ${it.level}%" })
+            .joinToString(" ").ifEmpty { null }
+        else state.battery?.let { "$it%" },
         state.codec?.label?.takeIf { it != "—" },
     ).joinToString(" · ")
     Phase.CONNECTING -> "Connecting…"
@@ -123,7 +125,7 @@ fun NotConnectedPlaceholder(state: HeadphonesState, modifier: Modifier = Modifie
         verticalArrangement = Arrangement.spacedBy(Space.m),
     ) {
         if (state.phase == Phase.FAILED) {
-            ProductDisk(R.drawable.xm4_front, size = 112.dp, dimmed = true)
+            ModelDisk(state, size = 112.dp, dimmed = true)
         } else {
             ContainedLoadingIndicator(Modifier.size(96.dp))
         }
@@ -167,7 +169,7 @@ internal fun StatusPane(state: HeadphonesState, vm: HeadphonesController, modifi
         ) {
             val disk = minOf(maxHeight, 200.dp)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.xl)) {
-                ProductDisk(renderFor(state.modelColor), size = disk, dimmed = state.phase != Phase.CONNECTED)
+                ProductDisk(rememberRender(state), size = disk, dimmed = state.phase != Phase.CONNECTED)
                 Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
                     Text(
                         state.displayName,

@@ -8,12 +8,11 @@ import com.occaecat.hush.assistant.Assistant
 import com.occaecat.hush.assistant.Assistants
 import com.occaecat.hush.mdr.AmbientMode
 import com.occaecat.hush.mdr.SpeakToChatDetail
-import com.occaecat.hush.sound.SoundStore
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * One JSON file with everything Hush keeps: the sound config (EQ library, scenes, Adaptive Sound Control, places,
+ * One JSON file with everything Hush keeps: the EQ library, scenes and automation for every device (Adaptive Sound Control, places,
  * app profiles), small preferences, optionally the insights history, and a snapshot of the headset's own settings.
  * Plain JSON on purpose, so the laptop's sony-mdr helper can read the same file.
  */
@@ -27,7 +26,7 @@ object Backup {
         val o = JSONObject()
             .put("format", FORMAT).put("version", VERSION).put("created", System.currentTimeMillis())
             .put("model", state.modelName ?: JSONObject.NULL)
-            .put("sound", SoundStore.exportJson())
+            .put("scenes", com.occaecat.hush.scenes.SceneStore.exportJson())
             .put("eqLibrary", com.occaecat.hush.devices.EqLibrary.exportJson())
             .put("prefs", JSONObject()
                 .put("holdAction", Assistants.current(context).name)
@@ -46,9 +45,12 @@ object Backup {
 
     fun summary(o: JSONObject): Summary {
         val sound = o.optJSONObject("sound")
+        val scenes = o.optJSONObject("scenes")?.optJSONObject("devices")?.let { d ->
+            d.keys().asSequence().sumOf { d.getJSONObject(it).optJSONArray("scenes")?.length() ?: 0 }
+        } ?: sound?.optJSONArray("scenes")?.length() ?: 0
         return Summary(
             o.optLong("created"), o.optString("model").takeIf { it.isNotEmpty() && it != "null" },
-            o.optJSONObject("eqLibrary")?.optJSONArray("curves")?.length() ?: sound?.optJSONArray("library")?.length() ?: 0, sound?.optJSONArray("scenes")?.length() ?: 0,
+            o.optJSONObject("eqLibrary")?.optJSONArray("curves")?.length() ?: sound?.optJSONArray("library")?.length() ?: 0, scenes,
             o.has("insights"), o.optJSONObject("headset")?.length()?.let { it > 0 } == true,
         )
     }
@@ -56,7 +58,9 @@ object Backup {
     /** Restores the phone side; with [applyHeadset] also writes the headset settings that don't force a reconnect. */
     fun restore(context: Context, o: JSONObject, applyHeadset: Boolean, restoreInsights: Boolean) {
         o.optJSONObject("eqLibrary")?.let(com.occaecat.hush.devices.EqLibrary::importJson)
-        o.optJSONObject("sound")?.let(SoundStore::importJson)
+        // Hush 0.18 keeps scenes and automation for every device; older backups held the XM4's alone, under "sound".
+        o.optJSONObject("scenes")?.let(com.occaecat.hush.scenes.SceneStore::importJson)
+            ?: o.optJSONObject("sound")?.let(com.occaecat.hush.scenes.SceneStore::importLegacy)
         o.optJSONObject("prefs")?.let { p ->
             p.optString("holdAction").takeIf { it.isNotEmpty() }?.let { runCatching { Assistant.valueOf(it) }.getOrNull() }
                 ?.let { Assistants.set(context, it) }

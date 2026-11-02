@@ -66,7 +66,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -103,7 +102,7 @@ fun HelpPage(state: HeadphonesState, onGuide: () -> Unit, onTour: () -> Unit, on
         Surface(onClick = { Help.openHelpGuide(context, model) }, modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer) {
             Row(Modifier.padding(Space.l), verticalAlignment = Alignment.CenterVertically) {
-                Image(painterResource(renderFor(state.modelColor)), null, Modifier.size(64.dp), contentScale = ContentScale.Fit)
+                Image(rememberRender(state), null, Modifier.size(64.dp), contentScale = ContentScale.Fit)
                 Spacer(Modifier.width(Space.m))
                 Column {
                     Text("$model Help Guide", style = MaterialTheme.typography.titleLargeEmphasized)
@@ -270,7 +269,7 @@ fun TourPage(state: HeadphonesState, onClose: () -> Unit) {
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Space.m)) {
                         if (page == 0) {
                             Spacer(Modifier.height(Space.xl))
-                            Image(painterResource(renderFor(state.modelColor)), null, Modifier.fillMaxWidth().height(260.dp), contentScale = ContentScale.Fit)
+                            Image(rememberRender(state), null, Modifier.fillMaxWidth().height(260.dp), contentScale = ContentScale.Fit)
                             Spacer(Modifier.height(Space.l))
                             Text("Get to know your $model", style = MaterialTheme.typography.headlineMediumEmphasized)
                             Spacer(Modifier.height(Space.s))

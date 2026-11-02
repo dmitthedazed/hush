@@ -2,7 +2,12 @@ package com.occaecat.hush.devices
 
 import android.content.Context
 import android.content.Intent
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Bluetooth
+import androidx.compose.material.icons.outlined.Cable
+import androidx.compose.material.icons.outlined.Usb
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.ui.graphics.vector.ImageVector
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -44,6 +49,15 @@ interface DeviceModule {
 
     fun controller(device: Device): DeviceController
 
+    /** Whether [model] can be added as a demo: a device that acts connected, with no hardware behind it. */
+    fun hasDemo(model: Model): Boolean = false
+
+    /**
+     * The controller of a demo [device] ([Device.isDemo], model [Device.modelId]). It must never reach real hardware:
+     * changes only update its own state. Opening and removing a demo never calls [onOpen] / [onRemove].
+     */
+    fun demoController(device: Device): DeviceController = controller(device)
+
     /** The user opened [device]: connect to it if it isn't the one in use. */
     fun onOpen(device: Device) {}
 
@@ -68,7 +82,26 @@ data class Device(
     val address: String? = null,
 )
 
-enum class Transport { BLUETOOTH, USB }
+/** A device added with "Add as demo": its address is "demo:<model id>", so the key is "<module>:demo:<model id>". */
+val Device.isDemo: Boolean get() = address?.startsWith(DEMO_PREFIX) == true
+
+/** The registry entry for a demo of [model]. */
+fun demoCandidate(moduleId: String, model: Model) =
+    Candidate(moduleId, model.id, "${model.name} (demo)", model.transport, address = DEMO_PREFIX + model.id)
+
+private const val DEMO_PREFIX = "demo:"
+
+/** How a device reaches the phone. WIRED = a passive headphone on the jack or a USB-C adapter: nothing to talk to. */
+enum class Transport { BLUETOOTH, USB, WIRED }
+
+val Transport.icon: ImageVector get() = when (this) {
+    Transport.BLUETOOTH -> Icons.Outlined.Bluetooth
+    Transport.USB -> Icons.Outlined.Usb
+    Transport.WIRED -> Icons.Outlined.Cable
+}
+
+/** "plugged in" / "paired with this phone", for the add screens. */
+val Transport.found: String get() = if (this == Transport.BLUETOOTH) "paired with this phone" else "plugged in"
 
 /** What a device page needs from the shell: the other devices, and a way to switch to one. */
 interface DeviceHost {

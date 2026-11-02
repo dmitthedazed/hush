@@ -22,8 +22,12 @@ data class Model(
     /** A runtime permission the module needs to find this model (BLUETOOTH_CONNECT). */
     val permission: String? = null,
     @DrawableRes val image: Int? = null,
+    /** A render to download when there's no [image] (cached by the model id). */
+    val imageUrl: String? = null,
     /** Shown under the name ("Tested", "Untested: features depend on the model"). */
     val note: String? = null,
+    /** Section on the brand page ("Bluetooth", "Wired headphones"); models without one are listed first. */
+    val group: String? = null,
 )
 
 /** A unit a module can see right now (paired, plugged in), registered or not. */
