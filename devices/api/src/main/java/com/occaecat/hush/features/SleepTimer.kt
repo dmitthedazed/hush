@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 
 /** What the sleep timer acts on: the device's own volume and controls, or the phone's. */
-interface SleepTarget {
+interface SleepTarget : com.occaecat.hush.devices.Capability {
     /** Current volume and its maximum; null when unknown. */
     val volume: Int?
     fun setVolume(v: Int)
@@ -37,6 +37,7 @@ interface SleepTarget {
 
 /** The phone's own music volume, for devices without a volume of their own (wired EarPods). */
 class PhoneSleepTarget(context: Context, override val noun: String = "headphones") : SleepTarget {
+    override val providedBy get() = com.occaecat.hush.devices.Source.PHONE
     private val audio = context.applicationContext.getSystemService(AudioManager::class.java)
     override val volume get() = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
     override fun setVolume(v: Int) = audio.setStreamVolume(AudioManager.STREAM_MUSIC, v.coerceAtLeast(0), 0)

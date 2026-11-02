@@ -54,7 +54,7 @@ fun HeadphonesPanel(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                ProductDisk(renderFor(state.modelColor), size = 88.dp, dimmed = state.phase != Phase.CONNECTED)
+                ProductDisk(rememberRender(state), size = 88.dp, dimmed = state.phase != Phase.CONNECTED)
                 Spacer(Modifier.width(Space.m))
                 Column(Modifier.weight(1f)) {
                     Text(state.displayName, style = MaterialTheme.typography.titleLargeEmphasized)

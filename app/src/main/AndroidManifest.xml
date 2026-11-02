@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- The shell: device modules (devices/*) bring their own permissions and components through manifest merging. -->
+    <!-- The microphone test (any device with a mic); Bluetooth mics need the call route. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- The add screen looks for headphones in pairing mode; never used to work out where the phone is. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <application
         android:name=".HushApplication"
         android:allowBackup="true"

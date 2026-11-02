@@ -41,6 +41,12 @@ interface DeviceController {
     /** Battery, listening and last-seen history; null when the device isn't tracked. */
     val insights: com.occaecat.hush.features.Insights.Profile? get() = null
 
+    /** Extra switches scenes and automation can set; null when there are none. */
+    val sceneSwitches: SceneSwitches? get() = null
+
+    /** The microphone, for the shared mic test; null when the device has none (or the phone can't reach it). */
+    val microphone: Microphone? get() = null
+
     /** What the sleep timer fades and switches off; null = the phone's music volume. */
     val sleepTarget: com.occaecat.hush.features.SleepTarget? get() = null
 
@@ -85,6 +91,10 @@ interface DeviceController {
 
     /** Try to connect again (a widget tapped while disconnected). */
     fun reconnect() {}
+
+    /** A picture of one earbud or the case, shown by its battery gauge; null = the part's letter. */
+    @androidx.compose.runtime.Composable
+    fun partImage(part: BatteryPart): androidx.compose.ui.graphics.painter.Painter? = null
 
     /** The render as a bitmap, for widgets; null = a generic glyph. */
     fun renderBitmap(context: android.content.Context): android.graphics.Bitmap? = null
@@ -167,7 +177,7 @@ data class Detail(
 data class AboutRow(val icon: ImageVector, val title: String, val value: String?, val onClick: () -> Unit)
 
 /** An equalizer: the hero's bands, presets in groups, and how AutoEq corrections are applied to it. */
-interface Equalizer {
+interface Equalizer : Capability {
     val state: StateFlow<EqUi?>
 
     /** Preset chips by group ("Sony presets", "Your presets"); ids are the device's own. */
@@ -203,7 +213,24 @@ interface Equalizer {
 
     /** The AutoEq profile currently in effect, for the AutoEq row. */
     val autoEqApplied: StateFlow<String?>
+
+    /**
+     * What the EQ is now, to put back when a scene or an automation rule lets go. The default keeps the active preset
+     * (or the curve) and the on/off switch; a device whose presets hold their own bands can keep more.
+     */
+    fun snapshot(): Any? = EqSnapshot(
+        presets.value.flatMap { it.presets }.firstOrNull { it.active }?.id, state.value?.levels, state.value?.enabled,
+    )
+
+    fun restore(snapshot: Any?) {
+        val s = snapshot as? EqSnapshot ?: return
+        if (s.enabled == false) { toggle?.invoke(false); return }
+        if (s.enabled == true) toggle?.invoke(true)
+        if (s.preset != null) selectPreset(s.preset) else s.levels?.let(::applyLevels)
+    }
 }
+
+data class EqSnapshot(val preset: String?, val levels: List<Int>?, val enabled: Boolean?)
 
 data class PresetGroup(val title: String, val presets: List<Preset>)
 data class Preset(val id: String, val name: String, val active: Boolean)
@@ -232,7 +259,7 @@ interface AutoEqTarget {
 }
 
 /** Firmware, for the Updates page. */
-interface Firmware {
+interface Firmware : Capability {
     /** Composed while the Device page shows: checks when it can, returns what's pending ("firmware 3.1") or null. */
     @Composable
     fun pending(): String?

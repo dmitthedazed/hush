@@ -127,7 +127,6 @@ internal fun LazyStaggeredGridScope.sonyListen(state: HeadphonesState, vm: Headp
     }
     // Noise control and the DSEE / Speak-to-Chat switches are shared (SonyNoise, sonySettings); scenes stay Sony's.
     if ((state.phase == Phase.CONNECTED || state.phase == Phase.RECONNECTING) && state.ncAsm != null) {
-        item { ScenesRow(state, ItemWidth) }
     }
 }
 
@@ -152,7 +151,7 @@ private fun ConnectingHero(state: HeadphonesState, modifier: Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Space.m),
     ) {
-        ProductDisk(R.drawable.xm4_front, size = 144.dp)
+        ModelDisk(state, size = 144.dp)
         LoadingIndicator(Modifier.size(48.dp))
         Text("Connecting", style = MaterialTheme.typography.headlineSmallEmphasized)
         Text(
@@ -177,7 +176,7 @@ private fun FailedHero(
     ) {
         Column(Modifier.padding(Space.l), horizontalAlignment = Alignment.CenterHorizontally) {
             if (showImage) {
-                ProductDisk(R.drawable.xm4_front, size = 112.dp, dimmed = true)
+                ModelDisk(state, size = 112.dp, dimmed = true)
                 Spacer(Modifier.height(Space.m))
             }
             Text("Not connected", style = MaterialTheme.typography.headlineSmallEmphasized)

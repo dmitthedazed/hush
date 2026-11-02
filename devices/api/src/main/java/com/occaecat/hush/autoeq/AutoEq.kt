@@ -203,17 +203,17 @@ object AutoEq {
 
     // --- Last applied profile ------------------------------------------------------------------------------------
 
-    /** The profile last written, and the preset slot it went into. */
-    data class Applied(val name: String, val detail: String, val presetId: Int)
+    /** The profile last written, the preset slot it went into and the headset it was written to (null before 0.17). */
+    data class Applied(val name: String, val detail: String, val presetId: Int, val owner: String? = null)
 
     private fun prefs(context: Context) = context.getSharedPreferences("autoeq", Context.MODE_PRIVATE)
 
     fun lastApplied(context: Context): Applied? = prefs(context).let { p ->
-        p.getString("name", null)?.let { Applied(it, p.getString("detail", "").orEmpty(), p.getInt("preset", 0xA0)) }
+        p.getString("name", null)?.let { Applied(it, p.getString("detail", "").orEmpty(), p.getInt("preset", 0xA0), p.getString("owner", null)) }
     }
 
-    fun rememberApplied(context: Context, entry: Entry, presetId: Int) = prefs(context).edit()
-        .putString("name", entry.name).putString("detail", entry.detail).putInt("preset", presetId).apply()
+    fun rememberApplied(context: Context, entry: Entry, presetId: Int, owner: String? = null) = prefs(context).edit()
+        .putString("name", entry.name).putString("detail", entry.detail).putInt("preset", presetId).putString("owner", owner).apply()
 
     fun forgetApplied(context: Context) = prefs(context).edit().clear().apply()
 }

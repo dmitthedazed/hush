@@ -19,6 +19,7 @@ android {
     buildFeatures {
         compose = true
     }
+    testOptions.unitTests.isReturnDefaultValues = true
 }
 
 dependencies {
@@ -28,4 +29,5 @@ dependencies {
     implementation(libs.play.services.location)
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.androidx.core.ktx)
+    testImplementation(libs.junit)
 }

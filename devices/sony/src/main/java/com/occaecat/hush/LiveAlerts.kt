@@ -47,7 +47,7 @@ object LiveAlerts {
         )
         val notification = Notification.Builder(context, CHANNEL)
             .setSmallIcon(com.occaecat.hush.ui.R.drawable.ic_stat_headphones)
-            .setLargeIcon(Icon.createWithResource(context, R.drawable.card_xm4))
+            .setLargeIcon(com.occaecat.hush.ui.notificationIcon(context))
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text))

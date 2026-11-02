@@ -36,7 +36,12 @@ object FirmwareCheck {
         /** The whole notice (precautions, notes, how to check the version), same language. */
         val notice: String?,
         val checkedAt: Long,
+        /** The service's Model rules: which models Sony publishes it for. */
+        val models: List<String> = emptyList(),
     )
+
+    /** Sony's server has no update service under this category and id. */
+    class NoSuchService : Exception()
 
     private val KEY = byteArrayOf(79, -94, 121, -103, -1, -48, -117, 31, -28, -46, 96, -43, 123, 109, 60, 23)
     private const val TTL_MS = 12 * 60 * 60 * 1000L
@@ -60,6 +65,7 @@ object FirmwareCheck {
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 10_000; c.readTimeout = 20_000
         try {
+            if (c.responseCode == 404 || c.responseCode == 403) throw NoSuchService()
             if (c.responseCode != 200) error("HTTP ${c.responseCode}")
             return c.inputStream.readBytes()
         } finally {
@@ -123,7 +129,8 @@ object FirmwareCheck {
         val notice = noticeUrl?.let { runCatching { noticeText(String(download(it), Charsets.UTF_8)) }.getOrNull() }
         val available = match != null && latest != null && compare(latest, firmware) > 0
         return Result(firmware, latest, available, fw?.get("Size")?.toLongOrNull(), published,
-            notice?.let { changesOf(it, latest) }, notice, System.currentTimeMillis())
+            notice?.let { changesOf(it, latest) }, notice, System.currentTimeMillis(),
+            conditions.flatMap { c -> c.rules.filter { it["Key"] == "Model" }.mapNotNull { it["Value"] } }.distinct())
     }
 
     private fun rule(r: Map<String, String>, facts: Map<String, String>): Boolean {
@@ -179,10 +186,12 @@ object FirmwareCheck {
 
     private fun toJson(r: Result) = JSONObject().put("current", r.current).put("latest", r.latest).put("available", r.available)
         .put("size", r.sizeBytes).put("published", r.published).put("changes", r.changes).put("notice", r.notice).put("checkedAt", r.checkedAt)
+        .put("models", org.json.JSONArray(r.models))
 
     private fun fromJson(o: JSONObject) = Result(
         o.getString("current"), o.optString("latest").ifEmpty { null }, o.optBoolean("available"),
         if (o.has("size") && !o.isNull("size")) o.getLong("size") else null, o.optString("published").ifEmpty { null },
         o.optString("changes").ifEmpty { null }, o.optString("notice").ifEmpty { null }, o.getLong("checkedAt"),
+        o.optJSONArray("models")?.let { a -> List(a.length()) { a.getString(it) } }.orEmpty(),
     )
 }

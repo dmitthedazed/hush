@@ -44,9 +44,13 @@ class HushService : Service() {
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
         )
-        startForeground(ID, build(CardSnapshot(controller.state.value)), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
-        // Adaptive Sound Control and app profiles live as long as the headset session does.
-        com.occaecat.hush.sound.SoundAutomation.start(this)
+        try {
+            startForeground(ID, build(CardSnapshot(controller.state.value)), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        } catch (e: SecurityException) {
+            // connectedDevice needs BLUETOOTH_CONNECT granted.
+            stopSelf()
+            return
+        }
         scope.launch {
             controller.state.map(::CardSnapshot).distinctUntilChanged().collect { nm.notify(ID, build(it)) }
         }
@@ -85,7 +89,7 @@ class HushService : Service() {
         )
         val builder = Notification.Builder(this, CHANNEL)
             .setSmallIcon(com.occaecat.hush.ui.R.drawable.ic_stat_headphones)
-            .setLargeIcon(Icon.createWithResource(this, R.drawable.card_xm4))
+            .setLargeIcon(com.occaecat.hush.ui.notificationIcon(this))
             .setContentTitle(s.name ?: "Headphones")
             .setContentText(status)
             .setStyle(Notification.BigTextStyle().bigText(status))

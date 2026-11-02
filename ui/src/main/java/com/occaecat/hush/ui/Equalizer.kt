@@ -68,6 +68,8 @@ data class EqUi(
     val labels: List<String>,
     val range: IntRange,
     val enabled: Boolean = true,
+    /** False on a device whose presets can be picked but whose bands are fixed: the sliders only show the curve. */
+    val editable: Boolean = true,
 )
 
 /**
@@ -103,7 +105,7 @@ fun EqualizerHero(
             }
             // Always composed while bands exist: it must stay alive while it holds the sound bypassed.
             if (onCompare != null && eq.levels.isNotEmpty() && eq.enabled) CompareButton(onCompare)
-            if (onReset != null && eq.levels.isNotEmpty() && eq.enabled) {
+            if (onReset != null && eq.levels.isNotEmpty() && eq.enabled && eq.editable) {
                 FilledTonalIconButton(onClick = onReset) { Icon(Icons.Outlined.RestartAlt, "Reset to flat") }
             }
             actions()
@@ -113,7 +115,7 @@ fun EqualizerHero(
             Spacer(Modifier.height(Space.l))
             Row(Modifier.fillMaxWidth().padding(horizontal = Space.m)) {
                 eq.levels.forEachIndexed { i, level ->
-                    EqBand(eq.labels.getOrElse(i) { "${i + 1}" }, level, eq.range, eq.enabled, Modifier.weight(1f)) { onBand(i, it) }
+                    EqBand(eq.labels.getOrElse(i) { "${i + 1}" }, level, eq.range, eq.enabled && eq.editable, Modifier.weight(1f)) { onBand(i, it) }
                 }
             }
         } else {

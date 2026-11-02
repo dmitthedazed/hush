@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.stateIn
 // ---- noise control ----------------------------------------------------------------------------------------------
 
 /** Noise cancelling and its neighbours, as the shared Listen card and the widgets draw them. */
-interface NoiseControl {
+interface NoiseControl : Capability {
     /** What the device can switch between, in display order. */
     val modes: List<NoiseMode>
 
@@ -24,6 +24,13 @@ interface NoiseControl {
     fun setLevel(level: Int, dragging: Boolean) {}
 
     fun setVoiceFocus(on: Boolean) {}
+
+    /** A whole setting at once (scenes, automation); null keeps that part. A device may send it as one command. */
+    fun apply(id: String, level: Int?, voiceFocus: Boolean?) {
+        setMode(id)
+        level?.let { setLevel(it, dragging = false) }
+        voiceFocus?.let(::setVoiceFocus)
+    }
 }
 
 enum class NoiseKind { CANCELLING, AMBIENT, ADAPTIVE, OFF }
@@ -41,6 +48,8 @@ data class NoiseMode(
     val title: String = label,
     /** The level and Focus on voice open under this mode while it is active. */
     val hasOptions: Boolean = false,
+    /** The level's range under this mode, for scenes that set it; null = no level. */
+    val levelRange: IntRange? = null,
 )
 
 data class NoiseUi(
@@ -62,7 +71,13 @@ fun NoiseControl.quickModes(scope: CoroutineScope): StateFlow<List<QuickMode>> {
 // ---- battery ----------------------------------------------------------------------------------------------------
 
 /** One battery the device reports: its only one, or a bud, or the case. */
-data class BatteryLevel(val level: Int, val charging: Boolean = false, val part: BatteryPart = BatteryPart.MAIN)
+/** [providedBy] PHONE: Android's own reading of the headset, not the device's report. */
+data class BatteryLevel(
+    val level: Int,
+    val charging: Boolean = false,
+    val part: BatteryPart = BatteryPart.MAIN,
+    val providedBy: Source = Source.DEVICE,
+)
 
 enum class BatteryPart(val label: String) { MAIN("Battery"), LEFT("Left"), RIGHT("Right"), CASE("Case") }
 
@@ -130,3 +145,27 @@ sealed interface Setting {
         val onClick: () -> Unit,
     ) : Setting
 }
+
+/**
+ * The device's microphone, for the shared mic test: how to find it among the phone's audio inputs. Bluetooth mics
+ * only exist while the call profile is up, so the test opens a communication route to the headset first.
+ */
+data class Microphone(
+    val transport: Transport,
+    /** Bluetooth address, to pick this headset when several are connected; null = any input of [transport]. */
+    val address: String? = null,
+    /** What to expect, under the test ("Calls go over Bluetooth's call profile at 16 kHz"). */
+    val note: String? = null,
+)
+
+/**
+ * Device switches a scene can set besides noise, EQ and volume (Sony's Speak-to-Chat). Ids are the device's own.
+ */
+interface SceneSwitches {
+    val list: List<SceneSwitch>
+    /** The live value; null while unknown (that switch is then left alone). */
+    fun get(id: String): Boolean?
+    fun set(id: String, on: Boolean)
+}
+
+data class SceneSwitch(val id: String, val title: String)

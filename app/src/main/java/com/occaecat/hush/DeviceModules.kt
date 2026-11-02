@@ -8,6 +8,8 @@ import com.occaecat.hush.devices.DeviceController
 import com.occaecat.hush.devices.DeviceModule
 import com.occaecat.hush.devices.DeviceRegistry
 import com.occaecat.hush.devices.Transport
+import com.occaecat.hush.devices.isDemo
+import com.occaecat.hush.fallback.withPhoneFallbacks
 import com.occaecat.hush.sony.SonyModule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +18,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
@@ -28,10 +31,22 @@ object DeviceModules {
 
     fun module(id: String) = all.first { it.id == id }
 
-    fun controller(device: Device) = controllers.getOrPut(device.key) { module(device.moduleId).controller(device) }
+    private lateinit var app: Context
+
+    /** The device's controller, with the phone filling in what its hardware lacks (marked as such). */
+    fun controller(device: Device) = controllers.getOrPut(device.key) {
+        module(device.moduleId).let { if (device.isDemo) it.demoController(device) else it.controller(device) }
+            .withPhoneFallbacks(app, device)
+    }
+
+    /** Opening a device connects to it when it isn't the one in use; demos have nothing to connect to. */
+    fun open(device: Device) { if (!device.isDemo) module(device.moduleId).onOpen(device) }
 
     /** After every module's init: register what older versions remembered (once). */
-    fun init(context: Context) = DeviceRegistry.migrate(all.flatMap { it.remembered(context) })
+    fun init(context: Context) {
+        app = context.applicationContext
+        DeviceRegistry.migrate(all.flatMap { it.remembered(context) })
+    }
 
     private val live: StateFlow<List<Device>> by lazy {
         combine(all.map { it.devices }) { lists -> lists.flatMap { it } }
@@ -60,16 +75,34 @@ object DeviceModules {
     fun scan(context: Context) = all.forEach { it.scan(context) }
 
     fun remove(device: Device) {
-        module(device.moduleId).onRemove(device)
+        if (!device.isDemo) module(device.moduleId).onRemove(device)
         controllers.remove(device.key)
         DeviceRegistry.remove(device.key)
     }
 
     /** What Hush shows without a user choice: a wired device in use, then any device in use, then the first one. */
     fun pick(devices: List<Device>): Device? =
-        devices.firstOrNull { it.active && it.transport == Transport.USB }
+        devices.firstOrNull { it.active && it.transport != Transport.BLUETOOTH }
             ?: devices.firstOrNull { it.active }
             ?: devices.firstOrNull()
+
+    /**
+     * Connected devices that are ready to take settings (noise control reported, if they have one), for scenes and
+     * automation.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val targets: StateFlow<List<com.occaecat.hush.scenes.SceneTarget>> by lazy {
+        devices.flatMapLatest { list ->
+            val ready = list.filter { it.active }.map { d ->
+                val c = controller(d)
+                combine(c.state, c.noise?.state ?: kotlinx.coroutines.flow.flowOf(null)) { s, n ->
+                    com.occaecat.hush.scenes.SceneTarget(d.key, d.moduleId, c).takeIf { s.connected && (c.noise == null || n != null) }
+                }
+            }
+            if (ready.isEmpty()) kotlinx.coroutines.flow.flowOf(emptyList()) else combine(ready) { it.filterNotNull() }
+        }.distinctUntilChanged { a, b -> a.map { it.key } == b.map { it.key } }
+            .stateIn(scope, SharingStarted.Eagerly, emptyList())
+    }
 
     /** The device widgets show. */
     val current: StateFlow<Device?> by lazy {

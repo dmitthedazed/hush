@@ -3,10 +3,38 @@
     <!-- App services every device page shares. Updates: Hush installs its own new releases from GitHub. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Scenes and automation for any device: activity transitions, places (geofences), the app that's playing. -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Wired headphones: the phone-side equalizer is a DynamicsProcessing effect on the output mix, kept alive by a
+         foreground service while it runs. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
 
     <application>
+        <service
+            android:name="com.occaecat.hush.wired.PhoneEqService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
         <receiver
             android:name="com.occaecat.hush.update.InstallReceiver"
             android:exported="false" />
+        <receiver
+            android:name="com.occaecat.hush.sound.AutomationReceiver"
+            android:exported="false" />
+
+        <!-- App profiles: notification access is what lets Hush see which app is playing. -->
+        <service
+            android:name="com.occaecat.hush.sound.MediaWatcher"
+            android:exported="true"
+            android:label="Hush app profiles"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

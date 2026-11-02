@@ -13,17 +13,23 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
-import com.occaecat.hush.autoeq.AutoEq
 import com.occaecat.hush.apple.usb.EarPodsCheck
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import com.occaecat.hush.wired.PhoneEqualizer
 
 /**
  * Apple EarPods (USB-C): a plain USB Audio headset, so there is no control channel, only what Android and the
  * USB descriptors tell. This watches for them, reads their descriptors once USB access is granted (for the
- * authenticity check and the details), and drives the phone-side equalizer while they're plugged in.
+ * authenticity check and the details), and runs the phone-side equalizer while they're plugged in.
  */
 object EarPods {
     data class Audio(val rates: List<Int>, val encodings: List<String>, val channels: List<Int>)
@@ -38,12 +44,11 @@ object EarPods {
         val report: EarPodsCheck.Report? = null,
         val output: Audio? = null,
         val mic: Audio? = null,
-        val eq: SoftEq.Settings = SoftEq.Settings(),
-        val eqError: String? = null,
     )
 
     private const val ACTION_PERMISSION = "com.occaecat.hush.earpods.USB_PERMISSION"
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
 
@@ -54,7 +59,13 @@ object EarPods {
     fun init(context: Context) {
         if (::app.isInitialized) return
         app = context.applicationContext
-        _state.update { it.copy(eq = SoftEq.load(app)) }
+        eq = PhoneEqualizer(
+            app, "apple:earpods-usb-c", "EarPods", "earpods_eq",
+            state.map { it.attached }.stateIn(scope, SharingStarted.Eagerly, false), "Apple EarPods",
+        )
+        com.occaecat.hush.wired.WiredAudio.init(app)
+        // While they're plugged in, the USB output is theirs, not a passive headphone's on an adapter.
+        com.occaecat.hush.wired.WiredAudio.claim("apple:earpods") { it.usb && _state.value.attached }
         val filter = IntentFilter().apply {
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
@@ -77,9 +88,8 @@ object EarPods {
     fun refresh() {
         val dev = device()
         if (dev == null) {
-            _state.update { State(eq = it.eq) }
-            applyEq()
-            EarPodsService.sync(app, false)
+            _state.value = State()
+            com.occaecat.hush.wired.WiredAudio.refresh()
             return
         }
         val access = usb.hasPermission(dev)
@@ -117,8 +127,7 @@ object EarPods {
                 output = describe(AudioManager.GET_DEVICES_OUTPUTS), mic = describe(AudioManager.GET_DEVICES_INPUTS),
             )
         }
-        applyEq()
-        EarPodsService.sync(app, _state.value.eq.enabled)
+        com.occaecat.hush.wired.WiredAudio.refresh()
     }
 
     /** Asks for USB access (a system dialog); the answer arrives as a broadcast that refreshes the state. */
@@ -131,36 +140,9 @@ object EarPods {
         usb.requestPermission(dev, pi)
     }
 
-    // --- Equalizer -------------------------------------------------------------------------------------------------
-
-    private fun editEq(change: (SoftEq.Settings) -> SoftEq.Settings) {
-        _state.update { it.copy(eq = change(it.eq)) }
-        SoftEq.save(app, _state.value.eq)
-        applyEq()
-        EarPodsService.sync(app, _state.value.attached && _state.value.eq.enabled)
-    }
-
-    private fun applyEq() {
-        val s = _state.value
-        val error = SoftEq.apply(s.eq, s.attached)
-        _state.update { it.copy(eqError = error) }
-    }
-
-    fun setEqEnabled(on: Boolean) = editEq { it.copy(enabled = on) }
-    fun setBand(index: Int, db: Int) = editEq { s ->
-        s.copy(gains = s.gains.toMutableList().also { it[index] = db.coerceIn(-SoftEq.MAX_DB, SoftEq.MAX_DB) })
-    }
-    fun setGains(gains: List<Int>) = editEq { it.copy(gains = gains) }
-    fun setCorrection(entry: AutoEq.Entry, curve: List<AutoEq.Point>) =
-        editEq { it.copy(correction = SoftEq.Correction(entry.name, entry.detail, curve), correctionOn = true) }
-    fun setCorrectionOn(on: Boolean) = editEq { it.copy(correctionOn = on) }
-    fun clearCorrection() = editEq { it.copy(correction = null) }
-
-    /** Hold-to-compare: bypasses the effect without touching the saved settings. */
-    fun bypass(on: Boolean) {
-        val s = _state.value
-        SoftEq.apply(s.eq.copy(enabled = !on && s.eq.enabled), s.attached)
-    }
+    /** The phone-side equalizer, on while they're plugged in. */
+    lateinit var eq: PhoneEqualizer
+        private set
 
     private fun encodingName(e: Int) = when (e) {
         AudioFormat.ENCODING_PCM_16BIT -> "16-bit"

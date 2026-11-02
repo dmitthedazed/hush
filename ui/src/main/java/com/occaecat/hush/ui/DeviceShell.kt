@@ -118,8 +118,11 @@ fun DeviceShell(
     openDevice: Any? = null,
     /** Shown above the hinge of a fold lying flat; without it the tabs just use the whole window. */
     statusPane: (@Composable (Modifier) -> Unit)? = null,
+    /** The picked tab, when the app keeps it (so switching devices stays on the same tab). */
+    tabState: androidx.compose.runtime.MutableState<Tab>? = null,
 ) {
-    var tab by rememberSaveable { mutableStateOf(Tab.LISTEN) }
+    val own = rememberSaveable { mutableStateOf(Tab.LISTEN) }
+    var tab by tabState ?: own
     LaunchedEffect(openDevice) { if (openDevice != null) tab = Tab.DEVICE }
     val layout = LocalLayout.current
 

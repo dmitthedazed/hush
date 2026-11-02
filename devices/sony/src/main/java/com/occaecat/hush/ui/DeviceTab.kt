@@ -39,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Backup
+import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.runtime.collectAsState
 import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
@@ -90,6 +91,7 @@ import androidx.compose.ui.unit.dp
 import com.occaecat.hush.HeadphonesState
 import com.occaecat.hush.HeadphonesController
 import com.occaecat.hush.Phase
+import com.occaecat.hush.mdr.v1.FunctionType
 
 /** What Sony's device sections open: dialogs, the guide, help, backup, insights. */
 class SonyDeviceUi {
@@ -102,14 +104,22 @@ class SonyDeviceUi {
 internal fun LazyStaggeredGridScope.sonyDevice(state: HeadphonesState, vm: HeadphonesController, ui: SonyDeviceUi) = with(ui) {
     val busy = state.audioSettling || state.phase != Phase.CONNECTED
     if (state.phase == Phase.CONNECTED || state.phase == Phase.RECONNECTING) {
-        item { ConnectionSection(state, vm, busy, dialogs, ItemWidth) }
+        // Multipoint, the headset's source list and pairing mode; models with none of them get no section.
+        val hasConnection = state.peers != null || state.has(FunctionType.PAIRING_DEVICE_MANAGEMENT_CLASSIC_BT) ||
+            state.generalSettings.values.any { it.title == "MULTIPOINT_SETTING" }
+        if (hasConnection) item { ConnectionSection(state, vm, busy, dialogs, ItemWidth) }
+        if (state.modelName != null || state.protocolV2) item { SonyAuthenticity(state) }
     }
 }
 
 /** Sony's rows in the shared About group. */
-internal fun sonyAbout(ui: SonyDeviceUi) = listOf(
+internal fun sonyAbout(ui: SonyDeviceUi, state: HeadphonesState, debuggable: Boolean) = listOfNotNull(
     com.occaecat.hush.devices.AboutRow(Icons.AutoMirrored.Outlined.HelpOutline, "Help", "Guide, tour and Sony support") { ui.page = "help" },
     com.occaecat.hush.devices.AboutRow(Icons.Outlined.Backup, "Backup & restore", "Move Hush to a new phone") { ui.page = "backup" },
+    // The WH-1000XM4 is the model Hush was built on; every other one gets the self test.
+    if (debuggable || state.modelName?.contains("WH-1000XM4", ignoreCase = true) != true) {
+        com.occaecat.hush.devices.AboutRow(Icons.Outlined.FactCheck, "Headset check", "Test this model and email the results") { ui.page = "check" }
+    } else null,
 )
 
 @Composable
@@ -121,6 +131,7 @@ internal fun SonyDeviceOverlays(state: HeadphonesState, ui: SonyDeviceUi) = with
         "help" -> HelpPage(state, onGuide = { page = null; guide = true }, onTour = { page = "tour" }) { page = null }
         "tour" -> TourPage(state) { page = null }
         "backup" -> BackupPage(state) { page = null }
+        "check" -> HeadsetCheckPage(state) { page = null }
         else -> {}
     }
 }
@@ -166,7 +177,8 @@ private fun ConnectionSection(state: HeadphonesState, vm: HeadphonesController, 
                 peers?.forEach { p ->
                     add { i, n -> PeerRow(i, n, p, p.order == state.peerPlayback && p.connected, state.address, vm, dialogs) }
                 }
-                add { i, n ->
+                // Pairing mode is a table-2 peripheral command: only for headsets with source management or multipoint.
+                if (state.has(FunctionType.PAIRING_DEVICE_MANAGEMENT_CLASSIC_BT) || multipoint != null) add { i, n ->
                     SegmentedListItem(
                         onClick = {
                             when {

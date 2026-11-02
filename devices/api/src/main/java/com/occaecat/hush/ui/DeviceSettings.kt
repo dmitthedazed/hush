@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.RecordVoiceOver
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -55,10 +57,13 @@ import androidx.compose.ui.unit.sp
 import com.occaecat.hush.devices.BatteryLevel
 import com.occaecat.hush.devices.BatteryPart
 import com.occaecat.hush.devices.Confirm
+import com.occaecat.hush.devices.Feature
 import com.occaecat.hush.devices.NoiseControl
 import com.occaecat.hush.devices.NoiseUi
 import com.occaecat.hush.devices.Setting
 import com.occaecat.hush.devices.SettingsGroup
+import com.occaecat.hush.devices.Source
+import com.occaecat.hush.devices.phoneNote
 import kotlin.math.roundToInt
 
 /**
@@ -211,14 +216,34 @@ private fun ActionRow(index: Int, count: Int, a: Setting.Action) {
 
 /** The hero's battery: one gauge, or one per bud and the case. */
 @Composable
-fun BatteryStatus(batteries: List<BatteryLevel>) {
-    if (batteries.size == 1 && batteries[0].part == BatteryPart.MAIN) return BatteryGauge(batteries[0].level, batteries[0].charging)
+fun BatteryStatus(
+    batteries: List<BatteryLevel>,
+    image: @Composable (BatteryPart) -> androidx.compose.ui.graphics.painter.Painter? = { null },
+) {
+    if (batteries.size == 1 && batteries[0].part == BatteryPart.MAIN) {
+        val b = batteries[0]
+        if (b.providedBy == Source.DEVICE) return BatteryGauge(b.level, b.charging)
+        // Android's own reading (the device's protocol reports none): coarser, and said so.
+        return Row(verticalAlignment = Alignment.CenterVertically) {
+            BatteryGauge(b.level, b.charging)
+            Spacer(Modifier.width(Space.xs))
+            Icon(Icons.Outlined.PhoneAndroid, Feature.BATTERY.phoneNote(), Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    // Several parts (earbuds and case) share the row with the name in the collapsed header: the part's picture and
+    // its percentage, without the gauge drawing, so three of them fit next to the codec chips.
+    val colors = MaterialTheme.colorScheme
     Row(horizontalArrangement = Arrangement.spacedBy(Space.m), verticalAlignment = Alignment.CenterVertically) {
         batteries.forEach { b ->
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(b.part.label.take(1), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val picture = image(b.part)
+                if (picture != null) androidx.compose.foundation.Image(picture, b.part.label, Modifier.size(24.dp))
+                else Text(b.part.label.take(1), style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant)
                 Spacer(Modifier.width(Space.xs))
-                BatteryGauge(b.level, b.charging)
+                if (b.charging) Icon(Icons.Filled.Bolt, "charging", Modifier.size(16.dp), tint = colors.primary)
+                Text("${b.level}%", style = MaterialTheme.typography.titleMedium,
+                    color = if (b.level <= 20 && !b.charging) colors.error else colors.onSurface, maxLines = 1)
             }
         }
     }
@@ -228,4 +253,15 @@ fun BatteryStatus(batteries: List<BatteryLevel>) {
 fun batteryFacts(batteries: List<BatteryLevel>): List<String> = batteries.map { b ->
     val head = if (b.part == BatteryPart.MAIN) "" else b.part.label.take(1) + " "
     head + "${b.level}%" + if (b.charging) " · charging" else ""
+}
+
+/** Marks a capability the phone provides instead of the device ("Runs on this phone, on everything it plays"). */
+@Composable
+fun PhoneSourceNote(feature: Feature, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Outlined.PhoneAndroid, null, Modifier.size(16.dp), tint = colors.onSurfaceVariant)
+        Spacer(Modifier.width(Space.xs))
+        Text(feature.phoneNote(), style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+    }
 }

@@ -81,12 +81,16 @@ object Space {
  * themes; [dimmed] desaturates it for "not connected".
  */
 @Composable
-fun ProductDisk(@DrawableRes image: Int, size: Dp, modifier: Modifier = Modifier, dimmed: Boolean = false) {
+fun ProductDisk(@DrawableRes image: Int, size: Dp, modifier: Modifier = Modifier, dimmed: Boolean = false) =
+    ProductDisk(painterResource(image), size, modifier, dimmed)
+
+@Composable
+fun ProductDisk(image: androidx.compose.ui.graphics.painter.Painter, size: Dp, modifier: Modifier = Modifier, dimmed: Boolean = false) {
     val colors = MaterialTheme.colorScheme
     val backdrop = if (colors.surface.luminance() < 0.5f) colors.onSurface.copy(alpha = 0.92f) else colors.surfaceContainerLowest
     Box(modifier.size(size).clip(CircleShape).background(backdrop), contentAlignment = Alignment.Center) {
         Image(
-            painterResource(image), contentDescription = null,
+            image, contentDescription = null,
             modifier = Modifier.fillMaxSize(0.8f),
             contentScale = ContentScale.Fit,
             alpha = if (dimmed) 0.55f else 1f,
@@ -225,17 +229,20 @@ fun ValueRow(
     value: String?,
     enabled: Boolean = true,
     trailing: (@Composable () -> Unit)? = null,
+    /** Instead of [icon] on its circle (a device picture). */
+    leading: (@Composable () -> Unit)? = null,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val press = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     SegmentedListItem(
         onClick = onClick,
         interactionSource = press,
-        modifier = Modifier.squishy(press, 0.97f),
+        modifier = modifier.squishy(press, 0.97f),
         enabled = enabled,
         shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
         colors = segmentColors(),
-        leadingContent = { LeadIcon(icon, enabled) },
+        leadingContent = leading ?: { LeadIcon(icon, enabled) },
         supportingContent = value?.let { { Text(it, color = MaterialTheme.colorScheme.primary) } },
         trailingContent = trailing ?: {
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)

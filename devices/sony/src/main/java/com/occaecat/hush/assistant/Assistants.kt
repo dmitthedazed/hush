@@ -67,7 +67,7 @@ object Assistants {
         val controller = com.occaecat.hush.HeadphonesController.get(c)
         when (a) {
             Assistant.NOISE_CYCLE -> controller.cycleNoiseMode()
-            Assistant.NEXT_SCENE -> com.occaecat.hush.features.Scenes.next(c)
+            Assistant.NEXT_SCENE -> com.occaecat.hush.scenes.Scenes.next("sony")
             Assistant.SLEEP_TIMER -> com.occaecat.hush.features.SleepTimer.let {
                 if (it.state.value == com.occaecat.hush.features.SleepTimer.State.Off) it.start(c, 30) else it.cancel()
             }

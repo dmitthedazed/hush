@@ -44,7 +44,9 @@ import com.occaecat.hush.devices.BlobRole
 import com.occaecat.hush.devices.Connection
 import com.occaecat.hush.devices.DeviceController
 import com.occaecat.hush.devices.DeviceState
+import com.occaecat.hush.devices.Feature
 import com.occaecat.hush.devices.SettingsGroup
+import com.occaecat.hush.devices.Source
 import com.occaecat.hush.devices.Tab
 
 /**
@@ -52,21 +54,30 @@ import com.occaecat.hush.devices.Tab
  * sections slotted in. A device that can't do something simply has nothing there.
  */
 @Composable
-fun DeviceUi(c: DeviceController) {
+fun DeviceUi(c: DeviceController, key: String, tab: androidx.compose.runtime.MutableState<com.occaecat.hush.ui.Tab>? = null) {
     val s by c.state.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(c) {
         com.occaecat.hush.features.SleepTimer.target = c.sleepTarget ?: com.occaecat.hush.features.PhoneSleepTarget(context, s.name)
     }
     val open = c.openPage?.collectAsState()?.value
+    // A notification asking for updates: the Device tab underneath, the Updates page on top.
+    val nav = LocalNavigator.current
+    LaunchedEffect(open) {
+        if (open == "updates" || open == "firmware") {
+            nav.push(Route.Updates(key))
+            c.consumeOpenPage()
+        }
+    }
     c.Gate {
         val settings = c.settings()
         DeviceShell(
             listen = { ListenPage(c, s, settings.filter { it.tab == Tab.LISTEN }) },
-            sound = { SoundPage(c, s, settings.filter { it.tab == Tab.SOUND }) },
-            device = { DevicePage(c, s, open, settings.filter { it.tab == Tab.DEVICE }) },
+            sound = { SoundPage(c, s, key, settings.filter { it.tab == Tab.SOUND }) },
+            device = { DevicePage(c, s, key, settings.filter { it.tab == Tab.DEVICE }) },
             openDevice = open,
             statusPane = c.statusPane,
+            tabState = tab,
         )
         c.Overlays()
     }
@@ -76,6 +87,7 @@ fun DeviceUi(c: DeviceController) {
 
 @Composable
 private fun ListenPage(c: DeviceController, s: DeviceState, settings: List<SettingsGroup>) {
+    val key = com.occaecat.hush.devices.LocalDeviceHost.current?.current?.key
     val showHero = LocalLayout.current.tabletopTop == null
     val colors = MaterialTheme.colorScheme
     TabScaffold(
@@ -100,7 +112,7 @@ private fun ListenPage(c: DeviceController, s: DeviceState, settings: List<Setti
                 status = {
                     val label = s.statusLabel
                     when {
-                        s.connected && s.batteries.isNotEmpty() -> BatteryStatus(s.batteries)
+                        s.connected && s.batteries.isNotEmpty() -> BatteryStatus(s.batteries) { c.partImage(it) }
                         s.connected && label != null -> Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(label.first, null, Modifier.size(18.dp), tint = colors.primary)
                             Spacer(Modifier.width(Space.xs))
@@ -126,6 +138,7 @@ private fun ListenPage(c: DeviceController, s: DeviceState, settings: List<Setti
                 ui?.let { NoiseControlCard(noise, it, ItemWidth) }
             }
         }
+        if (s.connected && key != null && (c.noise != null || c.equalizer != null)) item { ScenesRow(key, c, ItemWidth) }
         c.listenSections(this)
         if (s.connected) settings.forEach { g -> item { SettingsGroupView(g, ItemWidth) } }
         if (s.connected) item {
@@ -143,11 +156,11 @@ private fun ListenPage(c: DeviceController, s: DeviceState, settings: List<Setti
 // --- Sound ---------------------------------------------------------------------------------------------------------
 
 @Composable
-private fun SoundPage(c: DeviceController, s: DeviceState, settings: List<SettingsGroup>) {
+private fun SoundPage(c: DeviceController, s: DeviceState, key: String, settings: List<SettingsGroup>) {
+    val nav = LocalNavigator.current
     val eq = c.equalizer
     val eqState = eq?.state?.collectAsState()?.value
     var autoEqOpen by rememberSaveable { mutableStateOf(false) }
-    var libraryOpen by rememberSaveable { mutableStateOf(false) }
     TabScaffold(
         title = "Sound",
         subtitle = s.subtitle,
@@ -159,7 +172,10 @@ private fun SoundPage(c: DeviceController, s: DeviceState, settings: List<Settin
                 onReset = eq::reset,
                 onCompare = eq::compare,
                 actions = { eq.toggle?.let { t -> Switch(eqState.enabled, t, Modifier.padding(start = Space.s)) } },
-                extra = { eq.HeroExtra() },
+                extra = {
+                    if (eq.providedBy == Source.PHONE) PhoneSourceNote(Feature.EQUALIZER, Modifier.padding(horizontal = Space.l, vertical = Space.xs))
+                    eq.HeroExtra()
+                },
             )
         }) else null,
     ) {
@@ -180,13 +196,13 @@ private fun SoundPage(c: DeviceController, s: DeviceState, settings: List<Settin
                         SectionHeader(g.title, top = if (i == 0) Space.s else Space.l)
                         PresetChips(g.presets.map { p -> Triple(p.name, p.active) { eq.selectPreset(p.id) } }, enabled = enabled)
                     }
-                    if (saved.isNotEmpty()) {
+                    if (saved.isNotEmpty() && eqState?.editable != false) {
                         SectionHeader("Library")
                         PresetChips(saved.map { c -> Triple(c.name, eqState?.levels == c.levels) { eq.applyLevels(c.levels) } }, enabled = enabled)
                     }
                 }
             }
-            item {
+            if (eqState?.editable != false) item {
                 val applied by eq.autoEqApplied.collectAsState()
                 val library by com.occaecat.hush.devices.EqLibrary.items.collectAsState()
                 val n = library.count { it.layout == eq.layout }
@@ -197,24 +213,24 @@ private fun SoundPage(c: DeviceController, s: DeviceState, settings: List<Settin
                             applied?.let { "AutoEq · $it" } ?: "Fit a measured correction to your equalizer",
                             enabled = eqState?.enabled != false) { autoEqOpen = true }
                         ValueRow(1, 2, Icons.Outlined.LibraryMusic, "EQ library",
-                            when (n) { 0 -> "Save, share and import curves"; 1 -> "1 saved curve"; else -> "$n saved curves" }) { libraryOpen = true }
+                            when (n) { 0 -> "Save, share and import curves"; 1 -> "1 saved curve"; else -> "$n saved curves" },
+                            modifier = Modifier.sharedPage(Route.EqLibrary(key).pageKey!!)) { nav.push(Route.EqLibrary(key)) }
                     }
                 }
             }
         }
+        if (c.noise != null || c.equalizer != null) item { AutomationSection(key, c, ItemWidth) { nav.push(Route.Automation(key, it)) } }
         settings.forEach { g -> item { SettingsGroupView(g, ItemWidth) } }
         c.soundSections(this)
     }
     if (autoEqOpen && eq != null) AutoEqSheet(eq.autoEq.exactName ?: s.model, eq.autoEq) { autoEqOpen = false }
-    if (libraryOpen && eq != null) EqLibraryPage(eq) { libraryOpen = false }
 }
 
 // --- Device --------------------------------------------------------------------------------------------------------
 
 @Composable
-private fun DevicePage(c: DeviceController, s: DeviceState, open: String?, settings: List<SettingsGroup>) {
-    var page by rememberSaveable { mutableStateOf<String?>(null) }
-    LaunchedEffect(open) { if (open == "updates" || open == "firmware") { page = "updates"; c.consumeOpenPage() } }
+private fun DevicePage(c: DeviceController, s: DeviceState, key: String, settings: List<SettingsGroup>) {
+    val nav = LocalNavigator.current
     val app = rememberAppUpdate()
     val fw = c.firmware
     val fwPending = fw?.pending()
@@ -224,32 +240,35 @@ private fun DevicePage(c: DeviceController, s: DeviceState, open: String?, setti
         item { DeviceCard(c, s, ItemWidth.padding(top = Space.s)) }
         if (s.connected) settings.forEach { g -> item { SettingsGroupView(g, ItemWidth) } }
         c.deviceSections(this)
+        if (s.connected && c.microphone != null) item { MicTestRow(ItemWidth) { nav.push(Route.MicTest(key)) } }
         c.insights?.let { profile ->
             item {
-                InsightsSection(profile, live(s), ItemWidth) { page = "insights:$it" }
+                InsightsSection(profile, live(s), ItemWidth) { nav.push(Route.Insight(key, it)) }
             }
         }
         item {
+            // The app's own pages are destinations (rows grow into them); a device's own rows open what it draws.
             val rows = buildList {
-                add(com.occaecat.hush.devices.AboutRow(Icons.Outlined.SystemUpdate, "Updates", updatesSummary(app, fwPending, fwChecking)) { page = "updates" })
-                addAll(c.aboutRows)
-                if (s.details.isNotEmpty()) add(com.occaecat.hush.devices.AboutRow(Icons.Outlined.Info, "Device details", s.model) { page = "details" })
-                add(com.occaecat.hush.devices.AboutRow(Icons.Outlined.Favorite, "About Hush", "Version, author, licenses") { page = "about" })
+                add(com.occaecat.hush.devices.AboutRow(Icons.Outlined.SystemUpdate, "Updates", updatesSummary(app, fwPending, fwChecking)) {
+                    nav.push(Route.Updates(key))
+                } to Route.Updates(key).pageKey)
+                addAll(c.aboutRows.map { it to null })
+                if (s.details.isNotEmpty()) add(com.occaecat.hush.devices.AboutRow(Icons.Outlined.Info, "Device details", s.model) {
+                    nav.push(Route.Details(key))
+                } to Route.Details(key).pageKey)
+                add(com.occaecat.hush.devices.AboutRow(Icons.Outlined.Favorite, "About Hush", "Version, author, licenses") {
+                    nav.push(Route.About(key))
+                } to Route.About(key).pageKey)
             }
             Column(ItemWidth.padding(bottom = Space.l)) {
                 SectionHeader("About", top = Space.s)
-                SegmentedGroup { rows.forEachIndexed { i, r -> ValueRow(i, rows.size, r.icon, r.title, r.value, onClick = r.onClick) } }
+                SegmentedGroup {
+                    rows.forEachIndexed { i, (r, page) ->
+                        ValueRow(i, rows.size, r.icon, r.title, r.value,
+                            modifier = if (page != null) Modifier.sharedPage(page) else Modifier, onClick = r.onClick)
+                    }
+                }
             }
-        }
-    }
-    when (page) {
-        "updates" -> UpdatesPage(app, fw, s.model ?: s.name) { page = null }
-        "details" -> DeviceDetailsPage(s.details) { page = null }
-        "about" -> AboutPage { page = null }
-        else -> {
-            val p = page?.removePrefix("insights:")
-            val profile = c.insights
-            if (p != null && profile != null && page != p) InsightsPage(p, profile, live(s)) { page = null }
         }
     }
 }
@@ -286,8 +305,10 @@ private fun DeviceCard(c: DeviceController, s: DeviceState, modifier: Modifier) 
             }
             val device = host?.current
             if (removing && device != null) ConfirmDialog(
-                "${device.name} leaves the device switcher and Hush stops connecting to it. It stays paired with the phone; " +
-                    "add it again any time.",
+                if (device.transport == com.occaecat.hush.devices.Transport.BLUETOOTH)
+                    "${device.name} leaves the device switcher and Hush stops connecting to it. It stays paired with the " +
+                        "phone; add it again any time."
+                else "${device.name} leaves the device switcher, with its equalizer settings kept. Add it again any time.",
                 onConfirm = { host.remove(device) }, onDismiss = { removing = false },
                 title = "Remove ${device.name}?", confirm = "Remove",
             )
@@ -340,7 +361,7 @@ private fun NotConnected(c: DeviceController, s: DeviceState, modifier: Modifier
     }
 }
 
-private fun live(s: DeviceState) = com.occaecat.hush.features.Insights.Sample(
+internal fun live(s: DeviceState) = com.occaecat.hush.features.Insights.Sample(
     connected = s.connected, battery = s.battery, charging = s.charging, nc = s.noiseCancelling,
     volume = s.volume, volumeSteps = s.volumeSteps.coerceAtLeast(2),
 )

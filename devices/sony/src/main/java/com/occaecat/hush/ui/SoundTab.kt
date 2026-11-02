@@ -91,11 +91,11 @@ internal fun LazyStaggeredGridScope.sonySound(state: HeadphonesState, vm: Headph
     val connected = state.phase == Phase.CONNECTED || state.phase == Phase.RECONNECTING
     if (!connected) return@with
     val eq = state.eq
-    if (eq != null && eq.bands.size == Labels.sixBands.size) item {
+    if (eq != null && eq.bands.size == Labels.sixBands.size && state.eqCustomizable) item {
         // Find Your Equalizer uses Sound Connect's tables for the standard six bands only.
         val fye = eq.bands.size == Labels.sixBands.size
         Column(ItemWidth) {
-            SectionHeader("Personalize", top = Space.s)
+            SectionHeader("Tune by ear", top = Space.s)
             SegmentedGroup {
                 val rows = listOfNotNull("fye".takeIf { fye }, "hearing".takeIf { fye })
                 rows.forEachIndexed { i, r ->
@@ -115,29 +115,6 @@ internal fun LazyStaggeredGridScope.sonySound(state: HeadphonesState, vm: Headph
             }
         }
     }
-    item {
-        val sound by SoundStore.config.collectAsState()
-        val status by SoundAutomation.status.collectAsState()
-        Column(ItemWidth) {
-            SectionHeader("Automation", top = Space.s)
-            SegmentedGroup {
-                ValueRow(
-                    0, 2, Icons.AutoMirrored.Outlined.DirectionsWalk, "Adaptive Sound Control",
-                    if (!sound.ascEnabled) "Off" else status.inputs.activity?.let { "On · ${it.label}" } ?: "On",
-                    onClick = { page = "asc" },
-                )
-                ValueRow(
-                    1, 2, Icons.Outlined.Apps, "App profiles",
-                    when {
-                        !sound.appsEnabled -> "Off"
-                        sound.appRules.isEmpty() -> "On · no apps yet"
-                        else -> "On · ${sound.appRules.size} app" + if (sound.appRules.size > 1) "s" else ""
-                    },
-                    onClick = { page = "apps" },
-                )
-            }
-        }
-    }
     val rows = listOfNotNull(
         state.dseeAuto?.let { "dsee" },
         state.soundQualityPreferConnection?.let { "mode" },
@@ -149,22 +126,28 @@ internal fun LazyStaggeredGridScope.sonySound(state: HeadphonesState, vm: Headph
                 rows.forEachIndexed { i, r ->
                     when (r) {
                         "dsee" -> SwitchRow(
-                            i, rows.size, Icons.Outlined.AutoAwesome, "DSEE Extreme",
+                            i, rows.size, Icons.Outlined.AutoAwesome, Labels.upscaling[state.upscalingType ?: 0x02] ?: "DSEE",
                             if (state.dseeActive) "Upscaling compressed audio now" else "Restores detail in compressed audio",
                             state.dseeAuto == true, onCheckedChange = vm::setDsee,
                         )
                         "mode" -> {
-                            val preferConn = state.soundQualityPreferConnection == true
+                            val options = listOfNotNull(
+                                0 to "Prioritize sound quality", 1 to "Prioritize stable connection",
+                                (2 to "LE Audio (low latency, beta)").takeIf { vm.canUseLowLatencyMode },
+                            )
+                            val current = when {
+                                state.soundQualityLowLatency -> 2
+                                state.soundQualityPreferConnection == true -> 1
+                                else -> 0
+                            }
                             ValueRow(
                                 i, rows.size, Icons.Outlined.Compress, "Bluetooth connection quality",
-                                if (preferConn) "Prioritize stable connection" else "Prioritize sound quality",
+                                options.first { it.first == current }.second,
                                 enabled = !state.audioSettling,
                             ) {
-                                dialogs.choice = Choice(
-                                    "Bluetooth connection quality",
-                                    listOf(0 to "Prioritize sound quality", 1 to "Prioritize stable connection"),
-                                    if (preferConn) 1 else 0,
-                                ) { v -> dialogs.confirmReconnect { vm.setSoundQualityMode(v == 1) } }
+                                dialogs.choice = Choice("Bluetooth connection quality", options, current) { v ->
+                                    dialogs.confirmReconnect { if (v == 2) vm.setLowLatencyMode() else vm.setSoundQualityMode(v == 1) }
+                                }
                             }
                         }
                     }
@@ -180,8 +163,6 @@ internal fun SonySoundOverlays(state: HeadphonesState, vm: HeadphonesController,
     val presets = state.eq?.let { presetsFor(state) }
     DialogHost(dialogs)
     when (page) {
-        "asc" -> AdaptiveSoundPage(presets.orEmpty()) { page = null }
-        "apps" -> AppProfilesPage(presets.orEmpty()) { page = null }
         "hearing" -> HearingTestPage(vm) { page = null }
     }
     if (fyeOpen) {

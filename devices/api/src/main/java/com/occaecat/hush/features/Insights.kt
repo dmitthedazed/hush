@@ -29,8 +29,9 @@ import kotlin.math.pow
  *  - battery samples, grouped into *sessions* (one unbroken connection). Drain is only measured inside a session,
  *    so hours the headphones spent with another device (laptop, without multipoint) never count as "idle".
  *    With multipoint the phone stays connected and sees the drain from the laptop too.
- *  - listening minutes and an estimated sound dose per day (volume → dB, WHO 80 dB × 40 h a week = 100 %).
- *  - where and when the device was last seen (the disconnect), for "Find my headphones".
+ *  - listening minutes and an estimated sound dose per day (volume → dB, WHO 80 dB × 40 h a week = 100 %), kept per
+ *    device but read merged: the dose is the listener's, whatever they listened on.
+ *  - where and when the device was last seen (the disconnect), for "Find my devices" (all of them on one page).
  * Device modules feed it with [track]; devices without a battery simply have no battery samples.
  */
 object Insights {
@@ -83,6 +84,9 @@ object Insights {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var file: File? = null
     private val sessions = mutableMapOf<String, Int>()
+    private val last = mutableMapOf<String, Sample>()
+    private val upAt = mutableMapOf<String, Long>()
+    private var ticking = false
     private const val KEEP_DAYS = 30L
 
     private fun open(context: Context) {
@@ -98,12 +102,12 @@ object Insights {
         val app = context.applicationContext
         val key = profile.key
         sessions[key] = (snapshot(key).battery.maxOfOrNull { it.session } ?: 0) + 1
-        var last = Sample(connected = false)
 
         scope.launch {
             var wasUp = false
             samples.map { it.connected }.distinctUntilChanged().collect { up ->
                 if (up && !wasUp) {
+                    upAt[key] = System.currentTimeMillis()
                     sessions[key] = (sessions[key] ?: 0) + 1
                     seen(app, key, connected = true)
                 }
@@ -113,7 +117,7 @@ object Insights {
         }
         scope.launch {
             samples.collect { s ->
-                last = s
+                last[key] = s
                 val level = s.battery ?: return@collect
                 if (!s.connected) return@collect
                 val session = sessions[key] ?: 0
@@ -124,24 +128,36 @@ object Insights {
                 }
             }
         }
+        if (ticking) return
+        ticking = true
         scope.launch {
-            // One tick a minute: counts a listening minute when something plays through the connected device.
             while (true) {
                 delay(60_000)
-                val s = last
-                val playing = NowPlaying.media.value?.playing ?: s.playing
-                if (!s.connected || !playing) continue
-                val v = s.volume ?: continue
-                val today = LocalDate.now()
-                update(key) { snap ->
-                    val days = snap.days.toMutableList()
-                    val i = days.indexOfFirst { it.date == today }
-                    val add = doseForMinute(profile, v, s.volumeSteps)
-                    if (i >= 0) days[i] = days[i].let { it.copy(minutes = it.minutes + 1, dose = it.dose + add, volumeSum = it.volumeSum + v) }
-                    else days += Day(today, 1, add, v.toLong())
-                    snap.copy(days = days.filter { it.date.isAfter(today.minusDays(KEEP_DAYS)) })
-                }
+                tick()
             }
+        }
+    }
+
+    /**
+     * One tick a minute for all devices: the ears hear one device at a time, so a minute of listening goes to the one
+     * playing — the device that says it plays, else the one connected last (Android routes media to the newest
+     * output). Two connected devices never count the same minute twice, so the merged dose stays honest.
+     */
+    private fun tick() {
+        val mediaPlaying = NowPlaying.media.value?.playing
+        val up = last.filter { (_, s) -> s.connected && s.volume != null && (mediaPlaying ?: s.playing) }
+        val key = up.keys.maxWithOrNull(compareBy<String>({ up.getValue(it).playing }, { upAt[it] ?: 0L })) ?: return
+        val profile = profiles[key] ?: return
+        val s = up.getValue(key)
+        val v = s.volume ?: return
+        val today = LocalDate.now()
+        update(key) { snap ->
+            val days = snap.days.toMutableList()
+            val i = days.indexOfFirst { it.date == today }
+            val add = doseForMinute(profile, v, s.volumeSteps)
+            if (i >= 0) days[i] = days[i].let { it.copy(minutes = it.minutes + 1, dose = it.dose + add, volumeSum = it.volumeSum + v) }
+            else days += Day(today, 1, add, v.toLong())
+            snap.copy(days = days.filter { it.date.isAfter(today.minusDays(KEEP_DAYS)) })
         }
     }
 
@@ -187,6 +203,9 @@ object Insights {
         val from = LocalDate.now().minusDays(6)
         return days.filter { !it.date.isBefore(from) }.sumOf { it.dose }
     }
+
+    /** The ears' week: every device's dose added up (a minute is only ever counted on one device, see [tick]). */
+    fun weeklyDose(all: Map<String, Snapshot>): Double = all.values.sumOf { weeklyDose(it.days) }
 
     // ---- last seen ----
 
