@@ -167,9 +167,15 @@ fun WelcomeScreen(onAdd: (Candidate) -> Unit, onBrand: (String) -> Unit) {
                 modifier = Modifier.padding(start = Space.s, top = Space.l, bottom = Space.xs),
             )
             Text(
-                "Add your headphones to get started. Added devices stay in the device switcher even while they're off.",
+                "Liberate your headphones from vendor apps.", style = MaterialTheme.typography.titleMediumEmphasized,
+                color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = Space.s),
+            )
+            Text(
+                "No accounts, no tracking, no shady software. Works with " +
+                    DeviceModules.all.map { it.brand }.joinToString(" and ") + " for now, more brands soon.\n\n" +
+                    "Add your headphones to get started. Added devices stay in the device switcher even while they're off.",
                 style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = Space.s),
+                modifier = Modifier.padding(start = Space.s, end = Space.s, top = Space.s),
             )
             StartPage(state, onBrand)
         }

@@ -49,6 +49,11 @@ object SonyModule : DeviceModule {
     override val id = "sony"
     override val brand = "Sony"
 
+    override val notice = "Hush is an independent app and is not made, endorsed or supported by Sony. Sony, WH-1000XM4, " +
+        "Sound Connect and DSEE Extreme are trademarks of Sony Group Corporation; LDAC is a trademark of Sony. " +
+        "Headphone images, tutorials, help articles and firmware information are Sony's and are fetched from " +
+        "Sony's own servers, the way Sound Connect does, so the app can work with headphones you own."
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var _devices: StateFlow<List<Device>>
     override val devices: StateFlow<List<Device>> get() = _devices
@@ -257,7 +262,9 @@ private val ratedHours = mapOf(
 
 internal fun sonyInsights(model: String?): com.occaecat.hush.features.Insights.Profile {
     val (nc, off) = model?.let { m -> ratedHours.entries.firstOrNull { m.contains(it.key, ignoreCase = true) }?.value } ?: (30 to 38)
-    return com.occaecat.hush.features.Insights.Profile(key = "sony", noun = "headphones", ratedNcPerHour = 100.0 / nc, ratedOffPerHour = 100.0 / off)
+    return com.occaecat.hush.features.Insights.Profile(
+        key = "sony", noun = "headphones", ratedNcPerHour = 100.0 / nc, ratedOffPerHour = 100.0 / off, ratedBy = "Sony's rating",
+    )
 }
 
 internal val sonyInsights = sonyInsights("WH-1000XM4")

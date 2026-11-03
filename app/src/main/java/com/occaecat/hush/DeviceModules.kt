@@ -23,8 +23,13 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 /** Every brand Hush supports, in the order the add screen lists them. Adding a brand = one line here. */
-object DeviceModules {
+object Brands {
     val all: List<DeviceModule> = listOf(SonyModule, AppleModule)
+}
+
+/** The brands' devices as one list for the shell: registered, live, found, and their controllers. */
+object DeviceModules {
+    val all: List<DeviceModule> get() = Brands.all
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val controllers = mutableMapOf<String, DeviceController>()
@@ -32,11 +37,13 @@ object DeviceModules {
     fun module(id: String) = all.first { it.id == id }
 
     private lateinit var app: Context
+    private var debuggable = false
 
     /** The device's controller, with the phone filling in what its hardware lacks (marked as such). */
     fun controller(device: Device) = controllers.getOrPut(device.key) {
         module(device.moduleId).let { if (device.isDemo) it.demoController(device) else it.controller(device) }
             .withPhoneFallbacks(app, device)
+            .also { c -> if (debuggable) com.occaecat.hush.devices.Contract.check(c).forEach { android.util.Log.w("Contract", "${device.key}: $it") } }
     }
 
     /** Opening a device connects to it when it isn't the one in use; demos have nothing to connect to. */
@@ -45,6 +52,9 @@ object DeviceModules {
     /** After every module's init: register what older versions remembered (once). */
     fun init(context: Context) {
         app = context.applicationContext
+        debuggable = app.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+        // Debug builds stop at a brand that breaks the module contract (unit tests check the same).
+        if (debuggable) all.flatMap(com.occaecat.hush.devices.Contract::check).let { check(it.isEmpty()) { it.joinToString("\n") } }
         DeviceRegistry.migrate(all.flatMap { it.remembered(context) })
     }
 
@@ -102,6 +112,19 @@ object DeviceModules {
             if (ready.isEmpty()) kotlinx.coroutines.flow.flowOf(emptyList()) else combine(ready) { it.filterNotNull() }
         }.distinctUntilChanged { a, b -> a.map { it.key } == b.map { it.key } }
             .stateIn(scope, SharingStarted.Eagerly, emptyList())
+    }
+
+    /**
+     * A demo of the model called [name] (any brand that has demos), else of the first model that has one, for the
+     * debug launch intent.
+     */
+    fun demo(name: String?): Pair<Device, DeviceController>? {
+        val demos = all.flatMap { m -> m.models.filter(m::hasDemo).map { m to it } }
+        val (module, model) = name?.let { n -> demos.firstOrNull { it.second.name.equals(n, ignoreCase = true) } }
+            ?: demos.firstOrNull() ?: return null
+        val c = com.occaecat.hush.devices.demoCandidate(module.id, model)
+        val device = Device(c.key, module.id, c.name, c.transport, active = true, modelId = model.id, address = c.address)
+        return device to controller(device)
     }
 
     /** The device widgets show. */

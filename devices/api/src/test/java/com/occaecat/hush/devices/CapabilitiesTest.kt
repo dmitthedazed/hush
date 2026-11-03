@@ -10,7 +10,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CapabilitiesTest {
-    private class Fake(state: DeviceState, override val noise: NoiseControl? = null) : DeviceController {
+    private class Fake(
+        state: DeviceState,
+        override val noise: NoiseControl? = null,
+        override val sleepTarget: com.occaecat.hush.features.SleepTarget? = null,
+    ) : DeviceController {
         override val state: StateFlow<DeviceState> = MutableStateFlow(state)
         @Composable override fun Render(modifier: Modifier, connected: Boolean) {}
     }
@@ -42,4 +46,25 @@ class CapabilitiesTest {
         assertTrue(caps.emulated(Feature.BATTERY))
         assertTrue(Feature.SCENES in caps)
     }
+
+    @Test
+    fun phoneLogicOnHardwareIsHybrid() {
+        val caps = Fake(connected, hardwareNoise).capabilities
+        assertEquals(Source.HYBRID, caps.source(Feature.SCENES))
+        assertFalse(caps.emulated(Feature.SCENES))
+        assertEquals("This phone decides, your headphones switch", Feature.SCENES.note(Source.HYBRID))
+    }
+
+    @Test
+    fun aDeviceDeclaresItsOwnHybrid() {
+        val fadeThenOff = object : com.occaecat.hush.features.SleepTarget {
+            override val providedBy get() = Source.HYBRID
+            override val volume: Int? = null
+            override fun setVolume(v: Int) {}
+        }
+        assertEquals(Source.HYBRID, Fake(connected, sleepTarget = fadeThenOff).capabilities.source(Feature.SLEEP_TIMER))
+    }
+
+    @Test
+    fun hardwareNeedsNoNote() = assertEquals(null, Feature.NOISE.note(Source.DEVICE))
 }

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.Smartphone
 import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -253,6 +254,9 @@ private fun DevicePage(c: DeviceController, s: DeviceState, key: String, setting
                     nav.push(Route.Updates(key))
                 } to Route.Updates(key).pageKey)
                 addAll(c.aboutRows.map { it to null })
+                add(com.occaecat.hush.devices.AboutRow(Icons.Outlined.Tune, "Features", "What runs on the headphones, what on this phone") {
+                    nav.push(Route.Features(key))
+                } to Route.Features(key).pageKey)
                 if (s.details.isNotEmpty()) add(com.occaecat.hush.devices.AboutRow(Icons.Outlined.Info, "Device details", s.model) {
                     nav.push(Route.Details(key))
                 } to Route.Details(key).pageKey)

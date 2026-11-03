@@ -69,6 +69,7 @@ sealed interface Route {
 
     data class Updates(val device: String) : Route
     data class Details(val device: String) : Route
+    data class Features(val device: String) : Route
     data class About(val device: String) : Route
     data class MicTest(val device: String) : Route
     data class Insight(val device: String, val which: String) : Route
@@ -85,6 +86,7 @@ sealed interface Route {
         is About -> "about\t$device"
         is Updates -> "updates\t$device"
         is Details -> "details\t$device"
+        is Features -> "features\t$device"
         is MicTest -> "mic\t$device"
         is Insight -> "insight\t$device\t$which"
         is EqLibrary -> "library\t$device"
@@ -97,6 +99,7 @@ sealed interface Route {
         is Updates -> device
         is About -> device
         is Details -> device
+        is Features -> device
         is MicTest -> device
         is Insight -> device
         is EqLibrary -> device
@@ -108,6 +111,7 @@ sealed interface Route {
     val pageKey: String? get() = when (this) {
         is Updates -> "updates"
         is Details -> "details"
+        is Features -> "features"
         is About -> "about"
         is MicTest -> "mic"
         is Insight -> "insight:$which"
@@ -130,6 +134,7 @@ sealed interface Route {
                 "model" -> AddModel(p[1], p[2])
                 "updates" -> Updates(p[1])
                 "details" -> Details(p[1])
+                "features" -> Features(p[1])
                 "mic" -> MicTest(p[1])
                 "insight" -> Insight(p[1], p[2])
                 "library" -> EqLibrary(p[1])
@@ -360,6 +365,7 @@ private fun DevicePageFor(route: Route, c: DeviceController) {
         is Route.About -> AboutPage(nav::back)
         is Route.Updates -> UpdatesPage(rememberAppUpdate(), c.firmware, s.model ?: s.name, nav::back)
         is Route.Details -> DeviceDetailsPage(s.details, nav::back)
+        is Route.Features -> FeaturesPage(c, s.name, nav::back)
         is Route.MicTest -> c.microphone?.let { MicTestPage(c, s.name, it, nav::back) } ?: GoneBack()
         is Route.Insight -> c.insights?.let { InsightsPage(route.which, it, live(s), nav::back) } ?: GoneBack()
         is Route.EqLibrary -> c.equalizer?.let { EqLibraryPage(it, nav::back) } ?: GoneBack()

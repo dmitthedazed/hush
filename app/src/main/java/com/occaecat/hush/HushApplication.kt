@@ -25,5 +25,6 @@ class HushApplication : Application() {
         }
         // The watch follows the same device the widgets show.
         com.occaecat.hush.wear.WatchBridge.start(app, scope)
+        DeviceEvents.start(app, scope)
     }
 }

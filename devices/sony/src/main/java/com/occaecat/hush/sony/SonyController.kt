@@ -429,6 +429,8 @@ private fun SonyGate(vm: HeadphonesController, content: @Composable () -> Unit) 
 
 /** The headset's own volume, its playback control and power. */
 fun sonySleepTarget(vm: HeadphonesController) = object : com.occaecat.hush.features.SleepTarget {
+    // The phone keeps time and fades; the headset's own volume and power-off do the work.
+    override val providedBy get() = com.occaecat.hush.devices.Source.HYBRID
     override val volume get() = vm.state.value.volume
     override fun setVolume(v: Int) = vm.setVolume(v)
     override fun pause() { if (vm.state.value.playing == true) vm.playPause() }

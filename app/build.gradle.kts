@@ -36,6 +36,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
     implementation(libs.navigation3.runtime)
     implementation(libs.navigation3.ui)
     // Home screen widgets.

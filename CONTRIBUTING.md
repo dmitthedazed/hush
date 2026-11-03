@@ -8,7 +8,11 @@ cd hush
 ./gradlew testDebugUnitTest assembleDebug
 ```
 
-Needs JDK 21 and the Android SDK. Modules: `app` (phone), `wear`, `tv`, and `core` with the protocol and shared code.
+Needs JDK 21 and the Android SDK. Apps: `app` (phone), `wear`, `tv`. Brands live in `devices/<brand>` on the contract in `devices/api`; protocols in `protocol/<name>`.
+
+## Adding headphones
+
+A new brand, model or feature: [docs/EXTENDING.md](docs/EXTENDING.md). Every brand is checked by `DeviceModulesContractTest`.
 
 ## Before you change the protocol
 

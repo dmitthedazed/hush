@@ -252,7 +252,7 @@ fun ValueRow(
 }
 
 @Composable
-fun InfoRow(index: Int, count: Int, icon: ImageVector, title: String, value: String) {
+fun InfoRow(index: Int, count: Int, icon: ImageVector, title: String, value: String, dimmed: Boolean = false) {
     SegmentedListItem(
         onClick = {},
         enabled = false,
@@ -265,7 +265,7 @@ fun InfoRow(index: Int, count: Int, icon: ImageVector, title: String, value: Str
             disabledLeadingContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
             disabledSupportingContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ),
-        leadingContent = { LeadIcon(icon) },
+        leadingContent = { LeadIcon(icon, enabled = !dimmed) },
         supportingContent = { Text(value) },
         content = { Text(title) },
     )
