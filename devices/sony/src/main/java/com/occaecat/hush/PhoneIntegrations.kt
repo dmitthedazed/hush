@@ -2,7 +2,6 @@ package com.occaecat.hush
 
 import android.app.Application
 import android.content.Intent
-import com.occaecat.hush.wear.WatchBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -14,7 +13,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Everything outside the app UI that follows the shared [HeadphonesController] on the phone: the foreground
- * service while a session runs, ColorOS surfaces, Fluid Cloud alerts, home screen widgets and the watch.
+ * service while a session runs, ColorOS surfaces, Fluid Cloud alerts and home screen widgets.
  */
 object PhoneIntegrations {
 
@@ -63,10 +62,8 @@ object PhoneIntegrations {
         scope.launch {
             state.map(::CardSnapshot).distinctUntilChanged().collect { snapshot ->
                 DeviceCard.publish(app, snapshot)
-                HushTileService.refresh(app)
             }
         }
-        WatchBridge.start(app, controller, scope)
     }
 
     private fun headsetName(c: HeadphonesController) = c.state.value.displayName

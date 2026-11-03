@@ -40,7 +40,7 @@ import androidx.wear.tiles.tile
 import androidx.wear.tiles.timeline
 import androidx.wear.tiles.timelineEntry
 import com.occaecat.hush.link.Command
-import com.occaecat.hush.mdr.AmbientMode
+import com.occaecat.hush.link.NoiseMode
 import com.occaecat.hush.wear.R
 import com.occaecat.hush.wear.hub.HubState
 import com.occaecat.hush.wear.hub.HushHub
@@ -62,7 +62,7 @@ private suspend fun handleClick(context: Context, request: TileRequest): HubStat
     when {
         id == CLICK_CONNECT -> hub.perform(Command.Connect)
         id.startsWith(CLICK_MODE) ->
-            runCatching { AmbientMode.valueOf(id.removePrefix(CLICK_MODE)) }.getOrNull()?.let { hub.perform(Command.SetMode(it)) }
+            runCatching { NoiseMode.valueOf(id.removePrefix(CLICK_MODE)) }.getOrNull()?.let { hub.perform(Command.SetMode(it)) }
     }
     if (id.isEmpty()) hub.refreshPhone()
     hub.state.value
@@ -113,7 +113,7 @@ class HushTileService : Material3TileService() {
             },
             mainSlot = {
                 if (snap.connected) box(
-                    buttonGroup { for (m in AmbientMode.entries) buttonGroupItem { modeButton(m, snap.mode == m) } },
+                    buttonGroup { for (m in snap.modes) buttonGroupItem { modeButton(m, snap.mode == m) } },
                     width = expand(),
                     height = expand(),
                     // Air between the round-cornered buttons and the battery arc.
@@ -162,7 +162,7 @@ class HushTileService : Material3TileService() {
         return box(ring, content, width = expand(), height = expand())
     }
 
-    private fun MaterialScope.modeButton(m: AmbientMode, selected: Boolean) = iconButton(
+    private fun MaterialScope.modeButton(m: NoiseMode, selected: Boolean) = iconButton(
         onClick = clickable(id = CLICK_MODE + m.name),
         iconContent = { icon(imageResource(androidImageResource(WearLabels.modeIcon(m)))) },
         modifier = LayoutModifier.contentDescription(WearLabels.mode(m)),

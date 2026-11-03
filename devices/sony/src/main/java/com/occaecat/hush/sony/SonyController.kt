@@ -243,6 +243,7 @@ class SonyController(
     }
 
     override fun reconnect() { vm.connectSaved() }
+    override fun disconnect() { vm.disconnect() }
 
     override fun renderBitmap(context: Context): android.graphics.Bitmap? = com.occaecat.hush.ui.renderBitmap(context, hs.value)
 

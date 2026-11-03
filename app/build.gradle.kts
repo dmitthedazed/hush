@@ -29,6 +29,10 @@ dependencies {
     implementation(project(":devices:api"))
     implementation(project(":devices:sony"))
     implementation(project(":devices:apple"))
+    // The watch companion route (WatchBridge).
+    implementation(project(":link"))
+    implementation(libs.play.services.wearable)
+    implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     testImplementation(libs.junit)

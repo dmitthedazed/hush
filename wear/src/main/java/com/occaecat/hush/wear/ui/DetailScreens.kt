@@ -50,16 +50,15 @@ import androidx.wear.compose.material3.Text
 import androidx.wear.compose.material3.lazy.rememberTransformationSpec
 import androidx.wear.compose.material3.lazy.transformedHeight
 import com.occaecat.hush.link.Command
-import com.occaecat.hush.link.EqNames
 import com.occaecat.hush.wear.hub.HushHub
 import com.occaecat.hush.wear.hub.RoutePref
 import kotlin.math.roundToInt
 
-/** Ambient level 1–20 on a Stepper; the bezel / crown turns it too, one detent per step with a haptic tick. */
+/** Ambient level 1 to the headset's top on a Stepper; the bezel / crown turns it too, one detent per step with a haptic tick. */
 @Composable
 fun AmbientScreen(hub: HushHub) {
     val s by hub.state.collectAsStateWithLifecycle()
-    val range = 1..20
+    val range = 1..(s.snapshot.ambientMax ?: 20)
     var level by remember { mutableIntStateOf(s.snapshot.ambientLevel.coerceIn(range)) }
     var rotary by remember { mutableFloatStateOf(0f) }
     val haptics = LocalHapticFeedback.current
@@ -117,20 +116,20 @@ private const val ROTARY_STEP_PX = 48f
 fun EqualizerScreen(hub: HushHub) {
     val s by hub.state.collectAsStateWithLifecycle()
     val snap = s.snapshot
-    val presets = snap.eqPresets.ifEmpty { listOfNotNull(snap.eqPreset) }
+    val presets = snap.eqPresets
     val listState = rememberTransformingLazyColumnState()
     val spec = rememberTransformationSpec()
     ScreenScaffold(scrollState = listState) { padding ->
         TransformingLazyColumn(state = listState, contentPadding = padding) {
             item { ListHeader { Text("Equalizer") } }
             items(presets.size) { i ->
-                val id = presets[i]
+                val p = presets[i]
                 RadioButton(
-                    selected = snap.eqPreset == id,
-                    onSelect = { hub.perform(Command.SetEqPreset(id)) },
+                    selected = snap.eqPreset == p.id,
+                    onSelect = { hub.perform(Command.SetEqPreset(p.id)) },
                     modifier = Modifier.fillMaxWidth().transformedHeight(this, spec),
                     transformation = SurfaceTransformation(spec),
-                    label = { Text(EqNames.of(id), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    label = { Text(p.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 )
             }
         }

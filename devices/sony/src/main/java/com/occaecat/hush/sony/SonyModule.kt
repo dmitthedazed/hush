@@ -17,7 +17,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.occaecat.hush.HeadphonesController
 import com.occaecat.hush.HeadphonesState
-import com.occaecat.hush.HushTileService
 import com.occaecat.hush.Phase
 import com.occaecat.hush.devices.Candidate
 import com.occaecat.hush.devices.Device
@@ -221,7 +220,7 @@ object SonyModule : DeviceModule {
     }
 }
 
-/** Once the Bluetooth permission is there: connect, and the one-time asks (notifications, tile, battery). */
+/** Once the Bluetooth permission is there: connect, and the one-time asks (notifications, battery). */
 @Composable
 internal fun SonyStartup(vm: HeadphonesController) {
     val context = LocalContext.current
@@ -231,16 +230,6 @@ internal fun SonyStartup(vm: HeadphonesController) {
         vm.autoConnect()
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        // Offer the Hush tile for the control center once (system dialog, the user decides).
-        val prefs = context.getSharedPreferences("hush", 0)
-        if (!prefs.getBoolean("tile_offered", false)) {
-            prefs.edit().putBoolean("tile_offered", true).apply()
-            context.getSystemService(android.app.StatusBarManager::class.java)?.requestAddTileService(
-                android.content.ComponentName(context, HushTileService::class.java), "Hush",
-                android.graphics.drawable.Icon.createWithResource(context, com.occaecat.hush.ui.R.drawable.ic_stat_headphones),
-                context.mainExecutor,
-            ) {}
         }
         // The tile, the My Devices card and Bluetooth settings start the session from the background; Android only
         // lets an app start its foreground service from there when it is exempt from battery optimization.

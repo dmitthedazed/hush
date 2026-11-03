@@ -1,30 +1,30 @@
 package com.occaecat.hush.wear.hub
 
 import com.occaecat.hush.Phase
+import com.occaecat.hush.link.NoiseMode
 import com.occaecat.hush.link.Snapshot
-import com.occaecat.hush.mdr.AmbientMode
 import com.occaecat.hush.wear.R
 
 /** Wording and icons shared by the app, tiles, complications and the ongoing activity. */
 object WearLabels {
-    fun mode(m: AmbientMode?) = when (m) {
-        AmbientMode.NOISE_CANCELLING -> "Noise cancelling"
-        AmbientMode.AMBIENT -> "Ambient sound"
-        AmbientMode.OFF -> "Off"
+    fun mode(m: NoiseMode?) = when (m) {
+        NoiseMode.NOISE_CANCELLING -> "Noise cancelling"
+        NoiseMode.AMBIENT -> "Ambient sound"
+        NoiseMode.OFF -> "Off"
         null -> "—"
     }
 
-    fun modeShort(m: AmbientMode?) = when (m) {
-        AmbientMode.NOISE_CANCELLING -> "ANC"
-        AmbientMode.AMBIENT -> "AMB"
-        AmbientMode.OFF -> "OFF"
+    fun modeShort(m: NoiseMode?) = when (m) {
+        NoiseMode.NOISE_CANCELLING -> "ANC"
+        NoiseMode.AMBIENT -> "AMB"
+        NoiseMode.OFF -> "OFF"
         null -> "—"
     }
 
-    fun modeIcon(m: AmbientMode?) = when (m) {
-        AmbientMode.NOISE_CANCELLING -> R.drawable.ic_w_nc
-        AmbientMode.AMBIENT -> R.drawable.ic_w_ambient
-        AmbientMode.OFF -> R.drawable.ic_w_off
+    fun modeIcon(m: NoiseMode?) = when (m) {
+        NoiseMode.NOISE_CANCELLING -> R.drawable.ic_w_nc
+        NoiseMode.AMBIENT -> R.drawable.ic_w_ambient
+        NoiseMode.OFF -> R.drawable.ic_w_off
         null -> R.drawable.ic_w_disconnected
     }
 

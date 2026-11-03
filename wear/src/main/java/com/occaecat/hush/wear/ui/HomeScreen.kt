@@ -49,8 +49,7 @@ import androidx.wear.compose.material3.lazy.rememberTransformationSpec
 import androidx.wear.compose.material3.lazy.transformedHeight
 import com.occaecat.hush.Phase
 import com.occaecat.hush.link.Command
-import com.occaecat.hush.link.EqNames
-import com.occaecat.hush.mdr.AmbientMode
+import com.occaecat.hush.link.NoiseMode
 import com.occaecat.hush.wear.hub.HubState
 import com.occaecat.hush.wear.hub.HushHub
 import com.occaecat.hush.wear.hub.Route
@@ -95,6 +94,7 @@ fun HomeScreen(
                 item {
                     ModeGroup(
                         snap.mode,
+                        snap.modes,
                         Modifier.fillMaxWidth().transformedHeight(this, spec),
                         SurfaceTransformation(spec),
                     ) { hub.perform(Command.SetMode(it)) }
@@ -108,31 +108,33 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxWidth().scrollFade(this, spec),
                     )
                 }
-                if (snap.mode == AmbientMode.AMBIENT) {
-                    item {
-                        ListButton(
-                            spec, label = "Ambient level", secondary = "${snap.ambientLevel} of 20",
-                            icon = { Icon(painterResource(com.occaecat.hush.wear.R.drawable.ic_w_ambient), null) },
-                            onClick = onAmbient,
-                        )
+                if (snap.mode == NoiseMode.AMBIENT) {
+                    snap.ambientMax?.let { max ->
+                        item {
+                            ListButton(
+                                spec, label = "Ambient level", secondary = "${snap.ambientLevel} of $max",
+                                icon = { Icon(painterResource(com.occaecat.hush.wear.R.drawable.ic_w_ambient), null) },
+                                onClick = onAmbient,
+                            )
+                        }
                     }
-                    item {
-                        ListSwitch(spec, "Voice focus", snap.voiceFocus, Icons.Rounded.RecordVoiceOver) {
-                            hub.perform(Command.SetVoiceFocus(it))
+                    snap.voiceFocus?.let { on ->
+                        item {
+                            ListSwitch(spec, "Voice focus", on, Icons.Rounded.RecordVoiceOver) {
+                                hub.perform(Command.SetVoiceFocus(it))
+                            }
                         }
                     }
                 }
-                snap.speakToChat?.let { on ->
-                    item { ListSwitch(spec, "Speak-to-Chat", on, Icons.Rounded.Forum) { hub.perform(Command.SetSpeakToChat(it)) } }
-                }
                 if (snap.eqPresets.isNotEmpty() || snap.eqPreset != null) item {
                     ListButton(
-                        spec, label = "Equalizer", secondary = snap.eqPreset?.let(EqNames::of) ?: "—",
+                        spec, label = "Equalizer",
+                        secondary = snap.eqPresets.firstOrNull { it.id == snap.eqPreset }?.name ?: "—",
                         icon = { Icon(Icons.Rounded.Equalizer, null) }, onClick = onEqualizer,
                     )
                 }
-                snap.dseeAuto?.let { on ->
-                    item { ListSwitch(spec, "DSEE Extreme", on, Icons.Rounded.GraphicEq) { hub.perform(Command.SetDsee(it)) } }
+                for (t in snap.toggles) item(key = "toggle:${t.id}") {
+                    ListSwitch(spec, t.label, t.on, toggleIcon(t.id)) { hub.perform(Command.SetToggle(t.id, it)) }
                 }
             } else if (s.needsSetup) {
                 item {
@@ -228,17 +230,25 @@ private fun Hero(s: HubState, modifier: Modifier) {
     }
 }
 
+/** The glyph for a headset's on/off feature; the link only names it. */
+private fun toggleIcon(id: String) = when (id) {
+    "stc" -> Icons.Rounded.Forum
+    "dsee" -> Icons.Rounded.GraphicEq
+    else -> Icons.Rounded.Tune
+}
+
 /** NC / Ambient / Off: an expressive group whose pressed button grows and whose active button morphs its shape. */
 @Composable
 private fun ModeGroup(
-    mode: AmbientMode?,
+    mode: NoiseMode?,
+    modes: List<NoiseMode>,
     modifier: Modifier,
     transformation: androidx.wear.compose.material3.SurfaceTransformation,
-    onSelect: (AmbientMode) -> Unit,
+    onSelect: (NoiseMode) -> Unit,
 ) {
     // The group carries the list transformation; its buttons stay untransformed (no double scaling).
     ButtonGroup(modifier, transformation = transformation) {
-        for (m in AmbientMode.entries) {
+        for (m in modes) {
             val source = remember { MutableInteractionSource() }
             IconToggleButton(
                 checked = mode == m,

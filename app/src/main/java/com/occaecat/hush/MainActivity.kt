@@ -28,6 +28,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         route(intent)
+        if (com.occaecat.hush.devices.DeviceRegistry.items.value.isNotEmpty()) HushTileService.offer(this)
         // Debug builds: `am start -n com.occaecat.hush/.MainActivity --ez demo true` shows a connected XM4 without
         // hardware, for checking layouts on emulators; `--es demo WH-1000XM3` (or WF-1000XM3, WF-SP800N, WI-C100)
         // shows another MDR v1 model.

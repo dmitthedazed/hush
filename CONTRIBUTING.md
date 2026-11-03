@@ -12,7 +12,7 @@ Needs JDK 21 and the Android SDK. Modules: `app` (phone), `wear`, `tv`, and `cor
 
 ## Before you change the protocol
 
-[docs/NOTES.md](docs/NOTES.md) describes the MDR protocol, Sony's services and where each piece lives in the decompiled Sound Connect. Read the part you're touching first. Frame encoding is covered by tests in `core/src/test`, keep them passing and add one for anything new.
+[docs/NOTES.md](docs/NOTES.md) describes the MDR protocol, Sony's services and where each piece lives in the decompiled Sound Connect. Read the part you're touching first. Frame encoding is covered by tests in `devices/sony-core/src/test`, keep them passing and add one for anything new.
 
 ## Rules of thumb
 

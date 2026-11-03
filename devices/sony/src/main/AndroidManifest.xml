@@ -47,28 +47,6 @@
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
 
-        <!-- Commands from the Hush watch app (Wearable Data Layer). -->
-        <service
-            android:name="com.occaecat.hush.wear.PhoneWearService"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
-                <data android:scheme="wear" android:host="*" android:pathPrefix="/hush/command" />
-            </intent-filter>
-        </service>
-
-        <service
-            android:name="com.occaecat.hush.HushTileService"
-            android:exported="true"
-            android:icon="@drawable/ic_stat_headphones"
-            android:label="Hush"
-            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
-            <intent-filter>
-                <action android:name="android.service.quicksettings.action.QS_TILE" />
-            </intent-filter>
-            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="true" />
-        </service>
-
         <receiver android:name="com.occaecat.hush.AclReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
@@ -114,7 +92,6 @@
 
 
 
-
         <!-- AI assistant: Hush's "Ask …" shortcuts and in-app buttons. -->
         <activity
             android:name="com.occaecat.hush.assistant.VoiceCommandActivity"
@@ -143,7 +120,6 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
-
 
     </application>
 </manifest>

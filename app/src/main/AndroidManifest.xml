@@ -69,5 +69,28 @@
             </intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_dashboard" />
         </receiver>
+
+        <!-- Quick settings tile for the current device. -->
+        <service
+            android:name="com.occaecat.hush.HushTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_headphones"
+            android:label="Hush"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="true" />
+        </service>
+
+        <!-- Commands from the Hush watch app (Wearable Data Layer). -->
+        <service
+            android:name="com.occaecat.hush.wear.PhoneWearService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/hush/command" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

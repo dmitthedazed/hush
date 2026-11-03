@@ -60,8 +60,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 data class PairedDevice(val name: String, val address: String, val looksSony: Boolean)
 
-enum class Phase { IDLE, CONNECTING, CONNECTED, RECONNECTING, FAILED }
-
 data class HeadphonesState(
     val phase: Phase = Phase.IDLE,
     /** A demo headset ([HeadphonesController.demo]): nothing is sent anywhere. */
