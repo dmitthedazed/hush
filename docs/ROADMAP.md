@@ -7,6 +7,12 @@ Ideas in rough order; nothing here is built yet unless it says so.
 Headphones keep their control channel with only one host, and multipoint holds only two or three audio connections.
 Hush instances (phone, TV, watch, later a computer) can cooperate to hide both limits behind one UI.
 
+**Ships as a plugin.** Hush network is not part of the core app: it is a plugin (see Plugins) built on a small core
+surface: the `Multipoint` capability, a way for a plugin to publish a remote device as a `DeviceController`
+(`RemoteDeviceController`), and to receive state and commands of local devices under a declared "relay" permission.
+Discovery, trust, transport, switching policy and the desktop client all live in the plugin. Power-off and firmware
+stay closed to it. This also makes it the first real test of the plugin API after the Xposed plugin.
+
 **Two features on one transport**
 
 1. **Remote control.** The host that holds the control channel (the *channel owner*) relays commands from the other
@@ -76,6 +82,7 @@ others add support without a pull request to Hush.
   of the main app.
 - **Shell integrations:** ColorOS cards (first, via Xposed), Samsung Modes and Routines, One UI panel, Pixel Fast
   Pair, MIUI island.
+- **Hush network:** device switching and remote control between Hush instances (see above).
 - **Automation and smart home:** Tasker/Automate intents, Home Assistant/MQTT sensors (battery, noise mode), Google Home.
 - **Scene triggers and actions:** Wi-Fi/geofence, calendar, heart rate from the watch, Do Not Disturb, app launch, car
   Bluetooth; the core keeps the scene engine.
