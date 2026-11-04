@@ -65,6 +65,30 @@ Hush instances (phone, TV, watch, later a computer) can cooperate to hide both l
   libxposed), and **cut Xposed out of the main app**: no hook classes, no Xposed manifest entries or dependencies
   in `:app`.
 
+**What plugins are for:** keep everything tied to one firmware, root or third-party service out of the core, and let
+others add support without a pull request to Hush.
+
+- **Brands:** a `DeviceModule` as a separate APK (Jabra, Bose, Sennheiser…); also keeps brand code and renders out
+  of the main app.
+- **Shell integrations:** ColorOS cards (first, via Xposed), Samsung Modes and Routines, One UI panel, Pixel Fast
+  Pair, MIUI island.
+- **Automation and smart home:** Tasker/Automate intents, Home Assistant/MQTT sensors (battery, noise mode), Google Home.
+- **Scene triggers and actions:** Wi-Fi/geofence, calendar, heart rate from the watch, Do Not Disturb, app launch, car
+  Bluetooth; the core keeps the scene engine.
+- **Data sources:** AutoEq catalogs, EQ databases, render and firmware catalogs.
+- **Analytics and export:** Health Connect, Last.fm, CSV; network only inside the plugin and only with consent.
+- **Surfaces:** third-party tiles, widgets, Wear complications, Android Auto.
+- **Sound extensions:** custom phone-side DSP (parametric EQ, crossfeed, spatialization).
+- **Themes:** renders, colour schemes, icon and badge sets.
+- **Debugging:** an MDR/GNP frame sniffer and decoder, capture export for protocol work.
+
+**Safety model:** separate APKs talking through a bound service/AIDL with a signature permission and explicit user
+consent; no foreign dex loaded into the app process. A plugin gets limited capabilities declared in its manifest
+(read state, set a mode), never the raw headphone channel. Power-off and firmware are closed to plugins.
+
+**First step:** a small "plugin → events and actions" API (automation and scene triggers), with the Xposed plugin as
+proof that the cut-out works. Brand plugins later.
+
 ## Localization
 
 - **Move translations to Crowdin:** all user-visible text in string resources (per module), the source language synced
