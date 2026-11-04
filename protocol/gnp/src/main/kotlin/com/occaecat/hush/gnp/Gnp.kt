@@ -1,5 +1,10 @@
 package com.occaecat.hush.gnp
 
+import java.io.IOException
+
+class JabraRejectedException(val code: Int) :
+    IOException("The headphones rejected this setting (GNP ${code.toString(16)})")
+
 /** GNP packs the packet kind and its total length into the fourth byte. */
 data class GnpFrame(
     val destination: Int,
@@ -33,6 +38,10 @@ data class GnpFrame(
             echo[2].u() == request.sequence && echo[3].u() == request.encode()[3].u() &&
             echo[4].u() == request.command
     }
+
+    /** A NAK's subcommand is the error code; its payload echoes the request header. */
+    fun rejection(): JabraRejectedException? =
+        if (kind == RESPONSE && command == NAK) JabraRejectedException(subcommand) else null
 
     companion object {
         const val EVENT = 0

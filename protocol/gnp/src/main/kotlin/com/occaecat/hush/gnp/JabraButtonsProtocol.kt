@@ -14,9 +14,6 @@ interface GnpClient {
     fun close()
 }
 
-class JabraRejectedException(val code: Int) :
-    IOException("The headphones rejected this setting (GNP ${code.toString(16)})")
-
 enum class JabraButtonContext(val id: Int, val label: String) {
     MUSIC(0, "Music"), INCOMING_CALL(1, "Incoming calls"), ONGOING_CALL(2, "During calls");
 }

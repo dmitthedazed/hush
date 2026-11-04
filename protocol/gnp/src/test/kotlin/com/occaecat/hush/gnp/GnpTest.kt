@@ -77,6 +77,7 @@ class GnpTest {
         val denied = GnpParser().feed(bytes(9, 4, 10, 0xcb, 0xfe, 0xfd, 4, 9, 10, 0x46, 0x13)).single()
         assertTrue(denied.acknowledges(request))
         assertEquals(0xfd, denied.subcommand)
+        assertEquals(0xfd, denied.rejection()?.code)
         assertFalse(denied.acknowledges(request.copy(payload = bytes(0))))
     }
 }

@@ -9,7 +9,6 @@ import com.occaecat.hush.gnp.GnpFrame
 import com.occaecat.hush.gnp.GnpParser
 import com.occaecat.hush.gnp.JabraProtocol
 import com.occaecat.hush.gnp.JabraModel
-import com.occaecat.hush.gnp.JabraRejectedException
 import com.occaecat.hush.gnp.u
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -52,8 +51,6 @@ internal suspend fun cancellableGnpWrite(scope: CoroutineScope, closeOnCancel: (
             if (error != null && continuation.isActive) continuation.resumeWithException(error)
         }
     }
-
-internal class JabraRejectedException(val code: Int) : IOException("The headphones rejected this setting (GNP ${code.toString(16)})")
 
 /** One outstanding GNP request; no vendor SDK, polling scan, or persistent Bluetooth thread. */
 internal class JabraConnection(
@@ -200,7 +197,7 @@ internal class JabraConnection(
                     val matched = transaction != null && frame.acknowledges(transaction.first)
                     if (matched && transaction != null) {
                         when (frame.command) {
-                            GnpFrame.NAK -> transaction.second.completeExceptionally(JabraRejectedException(frame.subcommand))
+                            GnpFrame.NAK -> transaction.second.completeExceptionally(checkNotNull(frame.rejection()))
                             GnpFrame.ACK -> if (transaction.first.kind == GnpFrame.WRITE) transaction.second.complete(frame)
                             else -> transaction.second.complete(frame)
                         }
