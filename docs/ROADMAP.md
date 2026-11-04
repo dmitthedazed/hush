@@ -97,6 +97,12 @@ others add support without a pull request to Hush.
 consent; no foreign dex loaded into the app process. A plugin gets limited capabilities declared in its manifest
 (read state, set a mode), never the raw headphone channel. Power-off and firmware are closed to plugins.
 
+**Plugin repository:** a public catalog of plugins (a Git repo with an index file, F-Droid style) that Hush can
+browse. Each entry has the plugin's name, author, source link, signing certificate hash, required permissions and the
+minimum plugin-API version. The app lists plugins in its settings, shows the permissions before install, hands the APK
+to the system installer, and warns when a plugin's signature changes. Entries are reviewed by pull request; a plugin
+can also be installed by hand from outside the catalog, with a clear warning.
+
 **First step:** a small "plugin → events and actions" API (automation and scene triggers), with the Xposed plugin as
 proof that the cut-out works. Brand plugins later.
 
