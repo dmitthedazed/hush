@@ -65,6 +65,11 @@ Hush instances (phone, TV, watch, later a computer) can cooperate to hide both l
   libxposed), and **cut Xposed out of the main app**: no hook classes, no Xposed manifest entries or dependencies
   in `:app`.
 
+## Localization
+
+- **Move translations to Crowdin:** all user-visible text in string resources (per module), the source language synced
+  to a Crowdin project, translations pulled back into `values-<lang>` by CI, and a short guide for translators.
+
 ## Other
 
 - Jabra (Elite 10 / 85t) on the module system, contributed in the open pull request: reads everything the headphones
