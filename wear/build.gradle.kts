@@ -28,7 +28,7 @@ android {
 dependencies {
     // Play services pulls in an old Fragment; ActivityResult needs 1.3+ (lint InvalidFragmentVersionForActivityResult).
     implementation("androidx.fragment:fragment:1.8.6")
-    implementation(project(":core"))
+    implementation(project(":devices:sony-core"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)

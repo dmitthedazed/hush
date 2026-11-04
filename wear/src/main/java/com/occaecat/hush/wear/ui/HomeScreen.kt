@@ -49,8 +49,7 @@ import androidx.wear.compose.material3.lazy.rememberTransformationSpec
 import androidx.wear.compose.material3.lazy.transformedHeight
 import com.occaecat.hush.Phase
 import com.occaecat.hush.link.Command
-import com.occaecat.hush.link.EqNames
-import com.occaecat.hush.mdr.AmbientMode
+import com.occaecat.hush.link.NoiseMode
 import com.occaecat.hush.wear.hub.HubState
 import com.occaecat.hush.wear.hub.HushHub
 import com.occaecat.hush.wear.hub.Route
@@ -94,48 +93,48 @@ fun HomeScreen(
             if (snap.connected) {
                 item {
                     ModeGroup(
-                        snap.mode, snap.noiseModes,
+                        snap.mode,
+                        snap.modes,
                         Modifier.fillMaxWidth().transformedHeight(this, spec),
                         SurfaceTransformation(spec),
                     ) { hub.perform(Command.SetMode(it)) }
                 }
                 item {
                     Text(
-                        if (snap.brand == "JABRA" && snap.mode == AmbientMode.AMBIENT) "HearThrough" else WearLabels.mode(snap.mode),
+                        WearLabels.mode(snap.mode),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().scrollFade(this, spec),
                     )
                 }
-                if (snap.mode == AmbientMode.NOISE_CANCELLING && snap.ancMax > 0 && snap.ancLevel != null) item {
-                    ListButton(spec, "ANC strength", "${snap.ancLevel} of ${snap.ancMax}", icon = { Icon(Icons.Rounded.Tune, null) }, onClick = onAmbient)
-                }
-                if (snap.mode == AmbientMode.AMBIENT) {
-                    if (snap.ambientMax > snap.ambientMin) item {
-                        ListButton(
-                            spec, label = if (snap.brand == "JABRA") "HearThrough level" else "Ambient level", secondary = "${snap.ambientLevel} of ${snap.ambientMax}",
-                            icon = { Icon(painterResource(com.occaecat.hush.wear.R.drawable.ic_w_ambient), null) },
-                            onClick = onAmbient,
-                        )
+                if (snap.mode == NoiseMode.AMBIENT) {
+                    snap.ambientMax?.let { max ->
+                        item {
+                            ListButton(
+                                spec, label = "Ambient level", secondary = "${snap.ambientLevel} of $max",
+                                icon = { Icon(painterResource(com.occaecat.hush.wear.R.drawable.ic_w_ambient), null) },
+                                onClick = onAmbient,
+                            )
+                        }
                     }
-                    if (snap.supportsVoiceFocus) item {
-                        ListSwitch(spec, "Voice focus", snap.voiceFocus, Icons.Rounded.RecordVoiceOver) {
-                            hub.perform(Command.SetVoiceFocus(it))
+                    snap.voiceFocus?.let { on ->
+                        item {
+                            ListSwitch(spec, "Voice focus", on, Icons.Rounded.RecordVoiceOver) {
+                                hub.perform(Command.SetVoiceFocus(it))
+                            }
                         }
                     }
                 }
-                snap.speakToChat?.let { on ->
-                    item { ListSwitch(spec, "Speak-to-Chat", on, Icons.Rounded.Forum) { hub.perform(Command.SetSpeakToChat(it)) } }
-                }
-                if (snap.eqPresets.isNotEmpty() || snap.eqBands.isNotEmpty()) item {
+                if (snap.eqPresets.isNotEmpty() || snap.eqPreset != null) item {
                     ListButton(
-                        spec, label = "Equalizer", secondary = snap.eqPresets.indexOf(snap.eqPreset).takeIf { it >= 0 }?.let { snap.eqPresetNames.getOrNull(it) } ?: if (snap.eqNamespace == "sony-mdr") snap.eqPreset?.let(EqNames::of) else "Custom",
+                        spec, label = "Equalizer",
+                        secondary = snap.eqPresets.firstOrNull { it.id == snap.eqPreset }?.name ?: "—",
                         icon = { Icon(Icons.Rounded.Equalizer, null) }, onClick = onEqualizer,
                     )
                 }
-                snap.dseeAuto?.let { on ->
-                    item { ListSwitch(spec, "DSEE Extreme", on, Icons.Rounded.GraphicEq) { hub.perform(Command.SetDsee(it)) } }
+                for (t in snap.toggles) item(key = "toggle:${t.id}") {
+                    ListSwitch(spec, t.label, t.on, toggleIcon(t.id)) { hub.perform(Command.SetToggle(t.id, it)) }
                 }
             } else if (s.needsSetup) {
                 item {
@@ -209,7 +208,7 @@ private fun Hero(s: HubState, modifier: Modifier) {
                 )
             }
             Icon(
-                painterResource(if (snap.brand == "JABRA") com.occaecat.hush.wear.R.drawable.earbuds else com.occaecat.hush.wear.R.drawable.ic_xm4),
+                painterResource(com.occaecat.hush.wear.R.drawable.ic_xm4),
                 contentDescription = null,
                 modifier = Modifier.size(28.dp),
                 tint = if (snap.connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -222,11 +221,6 @@ private fun Hero(s: HubState, modifier: Modifier) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 6.dp),
         )
-        if (snap.connected && snap.batteries.isNotEmpty()) Text(
-            snap.batteries.joinToString(" / ") { "${it.label} ${it.level?.let { n -> "$n%" } ?: "Unknown"}" },
-            style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center,
-        )
-        if (snap.connected) snap.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center) }
         Text(
             if (snap.phase == Phase.FAILED && s.route == Route.WATCH) s.watchError ?: "Couldn't connect"
             else WearLabels.status(snap, s.route, s.phoneReachable),
@@ -236,18 +230,25 @@ private fun Hero(s: HubState, modifier: Modifier) {
     }
 }
 
+/** The glyph for a headset's on/off feature; the link only names it. */
+private fun toggleIcon(id: String) = when (id) {
+    "stc" -> Icons.Rounded.Forum
+    "dsee" -> Icons.Rounded.GraphicEq
+    else -> Icons.Rounded.Tune
+}
+
 /** NC / Ambient / Off: an expressive group whose pressed button grows and whose active button morphs its shape. */
 @Composable
 private fun ModeGroup(
-    mode: AmbientMode?,
-    supported: Set<AmbientMode>,
+    mode: NoiseMode?,
+    modes: List<NoiseMode>,
     modifier: Modifier,
     transformation: androidx.wear.compose.material3.SurfaceTransformation,
-    onSelect: (AmbientMode) -> Unit,
+    onSelect: (NoiseMode) -> Unit,
 ) {
     // The group carries the list transformation; its buttons stay untransformed (no double scaling).
     ButtonGroup(modifier, transformation = transformation) {
-        for (m in supported) {
+        for (m in modes) {
             val source = remember { MutableInteractionSource() }
             IconToggleButton(
                 checked = mode == m,

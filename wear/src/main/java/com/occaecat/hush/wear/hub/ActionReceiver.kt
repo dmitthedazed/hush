@@ -5,7 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.occaecat.hush.link.Command
-import com.occaecat.hush.mdr.AmbientMode
+import com.occaecat.hush.link.NoiseMode
 
 /** Taps from complications and the ongoing notification, routed through the hub. */
 class ActionReceiver : BroadcastReceiver() {
@@ -16,7 +16,7 @@ class ActionReceiver : BroadcastReceiver() {
             ACTION_CONNECT -> hub.perform(Command.Connect)
             ACTION_DISCONNECT -> hub.perform(Command.Disconnect)
             ACTION_MODE -> intent.getStringExtra(EXTRA_MODE)
-                ?.let { runCatching { AmbientMode.valueOf(it) }.getOrNull() }
+                ?.let { runCatching { NoiseMode.valueOf(it) }.getOrNull() }
                 ?.let { hub.perform(Command.SetMode(it)) }
         }
     }
@@ -28,7 +28,7 @@ class ActionReceiver : BroadcastReceiver() {
         const val ACTION_MODE = "com.occaecat.hush.wear.MODE"
         const val EXTRA_MODE = "mode"
 
-        fun pending(context: Context, action: String, mode: AmbientMode? = null): PendingIntent = PendingIntent.getBroadcast(
+        fun pending(context: Context, action: String, mode: NoiseMode? = null): PendingIntent = PendingIntent.getBroadcast(
             context, action.hashCode() + (mode?.ordinal ?: 0),
             Intent(context, ActionReceiver::class.java).setAction(action).apply { mode?.let { putExtra(EXTRA_MODE, it.name) } },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,

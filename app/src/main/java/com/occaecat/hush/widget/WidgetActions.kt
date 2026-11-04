@@ -6,46 +6,41 @@ import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
-import com.occaecat.hush.HeadphonesController
-import com.occaecat.hush.Phase
-import com.occaecat.hush.mdr.AmbientMode
+import com.occaecat.hush.DeviceModules
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private val ModeKey = ActionParameters.Key<String>("mode")
+private val ToggleKey = ActionParameters.Key<String>("toggle")
 
-/** Sets a noise mode; when no session is up the tap reconnects instead. */
+/** Sets a mode of the current device (or the next one); when it isn't connected the tap reconnects instead. */
 class SetModeAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) =
         withContext(Dispatchers.Main) {
-            val c = HeadphonesController.get(context)
-            val mode = parameters[ModeKey]?.let { runCatching { AmbientMode.valueOf(it) }.getOrNull() }
-            if (c.state.value.phase != Phase.CONNECTED) c.connectSaved()
-            else if (mode != null) c.setAmbientMode(mode)
-            else c.cycleNoiseMode()
-            Unit
+            val device = DeviceModules.current.value ?: return@withContext
+            val c = DeviceModules.controller(device)
+            val q = c.quick
+            when {
+                !c.state.value.connected -> c.reconnect()
+                q == null -> {}
+                parameters[ModeKey] != null -> q.setMode(parameters[ModeKey]!!)
+                else -> q.cycleMode()
+            }
         }
 }
 
-class ToggleDseeAction : ActionCallback {
+class ToggleAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) =
         withContext(Dispatchers.Main) {
-            val c = HeadphonesController.get(context)
-            c.state.value.dseeAuto?.let { c.setDsee(!it) }
+            val device = DeviceModules.current.value ?: return@withContext
+            parameters[ToggleKey]?.let { DeviceModules.controller(device).quick?.toggle(it) }
             Unit
         }
 }
 
-class ToggleSpeakToChatAction : ActionCallback {
-    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) =
-        withContext(Dispatchers.Main) {
-            val c = HeadphonesController.get(context)
-            c.state.value.speakToChat?.let { c.setSpeakToChat(!it) }
-            Unit
-        }
-}
-
-fun setMode(mode: AmbientMode) = actionRunCallback<SetModeAction>(actionParametersOf(ModeKey to mode.name))
+fun setMode(id: String) = actionRunCallback<SetModeAction>(actionParametersOf(ModeKey to id))
 
 /** Next mode, or reconnect when disconnected. */
 fun cycleMode() = actionRunCallback<SetModeAction>()
+
+fun toggle(id: String) = actionRunCallback<ToggleAction>(actionParametersOf(ToggleKey to id))

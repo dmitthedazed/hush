@@ -19,8 +19,8 @@ import androidx.wear.watchface.complications.data.SmallImageType
 import androidx.wear.watchface.complications.datasource.ComplicationRequest
 import androidx.wear.watchface.complications.datasource.SuspendingComplicationDataSourceService
 import com.occaecat.hush.Phase
+import com.occaecat.hush.link.NoiseMode
 import com.occaecat.hush.link.Snapshot
-import com.occaecat.hush.mdr.AmbientMode
 import com.occaecat.hush.wear.R
 import com.occaecat.hush.wear.hub.ActionReceiver
 import com.occaecat.hush.wear.hub.HushHub
@@ -48,13 +48,13 @@ class BatteryComplicationService : SuspendingComplicationDataSourceService() {
         build(request.complicationType, current(this))
 
     override fun getPreviewData(type: ComplicationType): ComplicationData? =
-        build(type, Snapshot(phase = Phase.CONNECTED, name = "WH-1000XM4", battery = 80, mode = AmbientMode.NOISE_CANCELLING))
+        build(type, Snapshot(phase = Phase.CONNECTED, name = "WH-1000XM4", battery = 80, mode = NoiseMode.NOISE_CANCELLING))
 
     private fun build(type: ComplicationType, s: Snapshot): ComplicationData? {
         val level = s.battery.takeIf { s.connected }
         val label = level?.let { "$it%" } ?: "--"
         val description = text(level?.let { "Headphones battery $it percent" } ?: "Headphones not connected")
-        val icon = mono(this, if (level != null) (if (s.brand == "JABRA") R.drawable.earbuds else R.drawable.ic_xm4) else R.drawable.ic_w_disconnected)
+        val icon = mono(this, if (level != null) R.drawable.ic_xm4 else R.drawable.ic_w_disconnected)
         val tap = openApp(this)
         return when (type) {
             ComplicationType.RANGED_VALUE ->
@@ -90,7 +90,7 @@ class NoiseComplicationService : SuspendingComplicationDataSourceService() {
         build(request.complicationType, current(this))
 
     override fun getPreviewData(type: ComplicationType): ComplicationData? =
-        build(type, Snapshot(phase = Phase.CONNECTED, mode = AmbientMode.NOISE_CANCELLING))
+        build(type, Snapshot(phase = Phase.CONNECTED, mode = NoiseMode.NOISE_CANCELLING))
 
     private fun build(type: ComplicationType, s: Snapshot): ComplicationData? {
         val mode = s.mode.takeIf { s.connected }

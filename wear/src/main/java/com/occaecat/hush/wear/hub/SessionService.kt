@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import androidx.wear.ongoing.OngoingActivity
 import androidx.wear.ongoing.Status
 import com.occaecat.hush.link.Snapshot
+import com.occaecat.hush.link.toSnapshot
 import com.occaecat.hush.wear.R
 import com.occaecat.hush.wear.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
@@ -39,9 +40,9 @@ class SessionService : Service() {
             NotificationChannel(CHANNEL, "Headphone session", NotificationManager.IMPORTANCE_LOW).apply { setShowBadge(false) }
         )
         val local = HushHub.get(this).local
-        startForeground(ID, build(Snapshot.from(local.state.value)), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        startForeground(ID, build(local.state.value.toSnapshot()), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         scope.launch {
-            local.state.map(Snapshot::from).distinctUntilChanged().collect { nm.notify(ID, build(it)) }
+            local.state.map { it.toSnapshot() }.distinctUntilChanged().collect { nm.notify(ID, build(it)) }
         }
     }
 

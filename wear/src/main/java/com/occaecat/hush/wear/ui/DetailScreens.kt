@@ -1,10 +1,6 @@
 package com.occaecat.hush.wear.ui
 
 import android.Manifest
-import androidx.activity.compose.BackHandler
-import com.occaecat.hush.mdr.AmbientMode
-import com.occaecat.hush.HeadphoneBrand
-import androidx.wear.compose.material3.SwitchButton
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.focusable
@@ -54,21 +50,16 @@ import androidx.wear.compose.material3.Text
 import androidx.wear.compose.material3.lazy.rememberTransformationSpec
 import androidx.wear.compose.material3.lazy.transformedHeight
 import com.occaecat.hush.link.Command
-import com.occaecat.hush.link.EqNames
 import com.occaecat.hush.wear.hub.HushHub
 import com.occaecat.hush.wear.hub.RoutePref
 import kotlin.math.roundToInt
 
-/** Ambient level 1–20 on a Stepper; the bezel / crown turns it too, one detent per step with a haptic tick. */
+/** Ambient level 1 to the headset's top on a Stepper; the bezel / crown turns it too, one detent per step with a haptic tick. */
 @Composable
 fun AmbientScreen(hub: HushHub) {
     val s by hub.state.collectAsStateWithLifecycle()
-    val anc = s.snapshot.mode == AmbientMode.NOISE_CANCELLING
-    val range = if (anc) 0..s.snapshot.ancMax else s.snapshot.ambientMin..s.snapshot.ambientMax
-    val actual = if (anc) s.snapshot.ancLevel ?: 0 else s.snapshot.ambientLevel
-    if (range.last <= range.first) return
-    var level by remember(anc, range) { mutableIntStateOf(actual.coerceIn(range)) }
-    LaunchedEffect(actual) { level = actual.coerceIn(range) }
+    val range = 1..(s.snapshot.ambientMax ?: 20)
+    var level by remember { mutableIntStateOf(s.snapshot.ambientLevel.coerceIn(range)) }
     var rotary by remember { mutableFloatStateOf(0f) }
     val haptics = LocalHapticFeedback.current
     val focus = remember { FocusRequester() }
@@ -78,8 +69,7 @@ fun AmbientScreen(hub: HushHub) {
         if (next == level) return
         level = next
         haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-        val namespace = if (s.snapshot.brand == "JABRA") "jabra-gnp" else "sony-mdr"
-        hub.perform(if (anc) Command.SetAncLevel(next, namespace, range.last) else Command.SetAmbientLevel(next, namespace, range.first, range.last))
+        hub.perform(Command.SetAmbientLevel(next))
     }
 
     LaunchedEffect(Unit) { focus.requestFocus() }
@@ -107,7 +97,7 @@ fun AmbientScreen(hub: HushHub) {
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("$level", style = MaterialTheme.typography.displayLarge, color = MaterialTheme.colorScheme.primary)
-                Text(if (anc) "ANC strength" else "Ambient level", style = MaterialTheme.typography.labelMedium)
+                Text("Ambient level", style = MaterialTheme.typography.labelMedium)
             }
         }
         // Drawn over the Stepper on the left edge, always visible (the scaffold's scroll-indicator slot auto-hides).
@@ -127,46 +117,19 @@ fun EqualizerScreen(hub: HushHub) {
     val s by hub.state.collectAsStateWithLifecycle()
     val snap = s.snapshot
     val presets = snap.eqPresets
-    var editing by remember { mutableIntStateOf(-1) }
-    val band = snap.eqBandSpecs.getOrNull(editing)
-    if (band != null && snap.eqLayoutId != null && editing in snap.eqBands.indices) {
-        BackHandler { editing = -1 }
-        ScreenScaffold(timeText = {}) {
-            Stepper(value = snap.eqBands[editing], onValueChange = { value ->
-                hub.perform(Command.SetEqBands(snap.eqBands.mapIndexed { i, v -> if (i == editing) value else v }, snap.eqLayoutId!!))
-            }, valueProgression = band.min..band.max step band.uiStep,
-                decreaseIcon = { Icon(Icons.Rounded.Remove, "Decrease gain") },
-                increaseIcon = { Icon(Icons.Rounded.Add, "Increase gain") }) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("%.1f dB".format(band.toDb(snap.eqBands[editing])), style = MaterialTheme.typography.displaySmall)
-                    Text(band.label)
-                }
-            }
-        }
-        return
-    }
     val listState = rememberTransformingLazyColumnState()
     val spec = rememberTransformationSpec()
     ScreenScaffold(scrollState = listState) { padding ->
         TransformingLazyColumn(state = listState, contentPadding = padding) {
             item { ListHeader { Text("Equalizer") } }
-            if (snap.supportsEqEnable) snap.eqEnabled?.let { enabled -> item {
-                SwitchButton(checked = enabled, onCheckedChange = { hub.perform(Command.SetEqEnabled(it, snap.eqNamespace, snap.eqLayoutId)) }, label = { Text("Equalizer enabled") }, modifier = Modifier.fillMaxWidth())
-            } }
-            items(snap.eqBands.size) { i ->
-                val b = snap.eqBandSpecs.getOrNull(i)
-                if (b != null && snap.eqLayoutId != null) Button(onClick = { editing = i },
-                    modifier = Modifier.fillMaxWidth().transformedHeight(this, spec), transformation = SurfaceTransformation(spec),
-                    label = { Text(b.label) }, secondaryLabel = { Text("%.1f dB".format(b.toDb(snap.eqBands[i]))) })
-            }
             items(presets.size) { i ->
-                val id = presets[i]
+                val p = presets[i]
                 RadioButton(
-                    selected = snap.eqPreset == id,
-                    onSelect = { hub.perform(Command.SetEqPreset(id, snap.eqNamespace)) },
+                    selected = snap.eqPreset == p.id,
+                    onSelect = { hub.perform(Command.SetEqPreset(p.id)) },
                     modifier = Modifier.fillMaxWidth().transformedHeight(this, spec),
                     transformation = SurfaceTransformation(spec),
-                    label = { Text(snap.eqPresetNames.getOrNull(i)?.takeIf { it.isNotBlank() } ?: EqNames.of(id), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    label = { Text(p.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 )
             }
         }
@@ -228,7 +191,7 @@ fun ConnectionScreen(hub: HushHub) {
                     label = { Text("Allow Bluetooth") },
                 )
             } else {
-                val sony = s.watchPaired.filter { it.brand != HeadphoneBrand.UNKNOWN }.ifEmpty { s.watchPaired }
+                val sony = s.watchPaired.filter { it.looksSony }.ifEmpty { s.watchPaired }
                 if (sony.isEmpty()) item {
                     Text(
                         "Pair your headphones in the watch's Bluetooth settings to use them without the phone.",

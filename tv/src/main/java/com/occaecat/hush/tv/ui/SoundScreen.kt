@@ -57,7 +57,6 @@ import androidx.compose.foundation.BorderStroke
 import com.occaecat.hush.HeadphonesController
 import com.occaecat.hush.HeadphonesState
 import com.occaecat.hush.ui.Labels
-import com.occaecat.hush.mdr.EqBandSpec
 
 @Composable
 fun SoundScreen(state: HeadphonesState, vm: HeadphonesController) {
@@ -65,10 +64,9 @@ fun SoundScreen(state: HeadphonesState, vm: HeadphonesController) {
     SectionScaffold("Sound") {
         if (!sessionBanner(state, vm)) return@SectionScaffold
         state.eq?.let { eq ->
-            val caps = state.eqCaps ?: return@let
             val presets = state.eqCaps?.presets?.takeIf { it.isNotEmpty() }
                 ?.map { it.id to it.name.ifBlank { Labels.presetNames[it.id] ?: "Preset" } }
-                ?: if (state.isSony) Labels.presetNames.filterKeys { it <= 0x17 || it == 0xA0 }.toList() else emptyList()
+                ?: Labels.presetNames.filterKeys { it <= 0x17 || it == 0xA0 }.toList()
             item {
                 Row(verticalAlignment = Alignment.Bottom) {
                     SectionHeader("Equalizer", Modifier.weight(1f))
@@ -80,7 +78,7 @@ fun SoundScreen(state: HeadphonesState, vm: HeadphonesController) {
                     )
                 }
             }
-            if (presets.isNotEmpty()) item {
+            item {
                 val selectedIndex = presets.indexOfFirst { it.first == eq.presetId }.coerceAtLeast(0)
                 LazyRow(
                     state = rememberLazyListState(initialFirstVisibleItemIndex = selectedIndex),
@@ -91,7 +89,7 @@ fun SoundScreen(state: HeadphonesState, vm: HeadphonesController) {
                         val selected = eq.presetId == id
                         FilterChip(
                             selected = selected,
-                            onClick = { vm.selectEqPreset(id, caps.namespace) },
+                            onClick = { vm.selectEqPreset(id) },
                             leadingIcon = if (selected) {
                                 { Icon(Icons.Filled.Check, null, Modifier.size(FilterChipDefaults.IconSize)) }
                             } else null,
@@ -102,12 +100,11 @@ fun SoundScreen(state: HeadphonesState, vm: HeadphonesController) {
             if (eq.bands.isNotEmpty()) item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Tv.Small)) {
                     eq.bands.forEachIndexed { i, raw ->
-                        val band = caps.bandSpecs.getOrNull(i) ?: return@forEachIndexed
-                        EqBand(band, raw, Modifier.weight(1f)) { vm.setEqBand(i, it) }
+                        val label = if (eq.bands.size == Labels.sixBands.size) Labels.sixBands[i] else "${i + 1}"
+                        EqBand(label, raw, Modifier.weight(1f)) { vm.setEqBand(i, it) }
                     }
                 }
             }
-            if (caps.supportsEnable) item { SwitchRow(Icons.Outlined.AutoAwesome, "Equalizer enabled", null, eq.enabled, onCheckedChange = vm::setEqEnabled) }
             if (eq.bands.isNotEmpty()) item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedButton(onClick = vm::setEqFlat) {
@@ -161,11 +158,10 @@ fun SoundScreen(state: HeadphonesState, vm: HeadphonesController) {
  * level, OK or Back leave it); outside edit mode ▲ ▼ move focus normally.
  */
 @Composable
-private fun EqBand(band: EqBandSpec, raw: Int, modifier: Modifier, onChange: (Int) -> Unit) {
+private fun EqBand(label: String, raw: Int, modifier: Modifier, onChange: (Int) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
-    val db = band.toDb(raw)
-    val label = band.label
+    val db = raw - 10
     val accent = MaterialTheme.colorScheme.primary
     // With targetSdk 36 Back arrives through the predictive-back dispatcher, not as a key event, so leaving
     // edit mode needs its own (innermost, so it wins over the shell's) BackHandler.
@@ -178,8 +174,8 @@ private fun EqBand(band: EqBandSpec, raw: Int, modifier: Modifier, onChange: (In
             .onPreviewKeyEvent { e ->
                 if (!editing) return@onPreviewKeyEvent false
                 when (e.key) {
-                    Key.DirectionUp -> { if (e.type == KeyEventType.KeyDown && raw < band.max) onChange((raw + band.uiStep).coerceAtMost(band.max)); true }
-                    Key.DirectionDown -> { if (e.type == KeyEventType.KeyDown && raw > band.min) onChange((raw - band.uiStep).coerceAtLeast(band.min)); true }
+                    Key.DirectionUp -> { if (e.type == KeyEventType.KeyDown && raw < 20) onChange(raw + 1); true }
+                    Key.DirectionDown -> { if (e.type == KeyEventType.KeyDown && raw > 0) onChange(raw - 1); true }
                     else -> false
                 }
             },
@@ -210,8 +206,7 @@ private fun EqBand(band: EqBandSpec, raw: Int, modifier: Modifier, onChange: (In
             BoxWithConstraints(Modifier.weight(1f).width(8.dp).clip(CircleShape).background(track)) {
                 // Fill from the 0 dB centre line towards the level.
                 val half = maxHeight / 2
-                val extent = maxOf(kotlin.math.abs(band.toDb(band.min)), kotlin.math.abs(band.toDb(band.max))).coerceAtLeast(1.0)
-                val len = half * (kotlin.math.abs(db) / extent).toFloat()
+                val len = half * (kotlin.math.abs(db) / 10f)
                 Box(Modifier.align(Alignment.Center).width(8.dp).height(2.dp).background(fill.copy(alpha = 0.5f)))
                 Box(
                     Modifier

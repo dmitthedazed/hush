@@ -14,6 +14,8 @@ Pair the headphones in Android Bluetooth settings first, then pick them in the a
 
 ## Protocol (MDR v1, command table 1)
 
+The whole v1 command set, the capability-driven start and support for other v1 models are described in [MDR_V1.md](MDR_V1.md). Code: `core/.../mdr/v1/`.
+
 | Layer | Detail | Source in the decompile |
 |---|---|---|
 | Transport | RFCOMM, UUID `96CC203E-5068-46ad-B32D-E316F5E069BA` | `lm0/i.java` |
@@ -48,6 +50,21 @@ Pair the headphones in Android Bluetooth settings first, then pick them in the a
 For NC/ASM, the set command echoes back the setting-type bytes the headset reported. The effect byte is `0x10` while a slider is being dragged and `0x11` when the change is committed.
 
 Verified on hardware (2026-10-12, firmware 3.0.1): connecting, model/firmware/battery/codec reads, EQ preset names and bands, and NC ↔ Ambient switching (each change is ACKed and confirmed by a notify). All settings in Sound Connect's "All device settings" list are read correctly from the XM4, and the NC optimizer has been run end to end. Not yet exercised on hardware: the other write commands (EQ bands, switches, choice dialogs) and power-off. Voice guidance language is read-only, because changing it means downloading a voice pack.
+
+## Protocol v2 (2026-10-21, untested on hardware)
+
+Full notes: `docs/MDR_V2.md`. Summary:
+- `mdr/v2/`: `Commands`, `FunctionType` (T1+T2, v1-equivalents), `Requests`, `Parser` (`MdrV2`), `Init`, `Protocol` (`V2Protocol`).
+  The controller talks to `MdrProtocol` (`V1Protocol` / `V2Protocol`) instead of the v1 builders.
+- Generation = RFCOMM service from `getUuids()` (v2 UUID first); an 8-byte protocol reply on the v1 service switches to v2.
+  The XM4 advertises only the v1 UUID (checked in `dumpsys bluetooth_manager`), so its path is unchanged.
+- v2 quirks: OnOff ON=0, GsSettingType BOOLEAN=0, AlertMessageType is v1−1 for 1..4 (translated), battery is POWER `22`,
+  pause when taken off is SYSTEM type 1.
+- Tests: `MdrV2CaptureTest` (WF-1000XM5, WF-LC900 captures from mos9527, MIT), `MdrV2RequestsTest`, `MdrV2FuzzTest`,
+  `SonyReferenceV2Test` (Sound Connect's own v2 classes from `tools/sonyref/sound-connect.jar` read every request and reply),
+  `HeadsetSimV2Test` (controller end to end with `SimHeadset(v2 = true)`, `Profiles.wf1000xm5()`).
+- Catalog: v2 models in `SonyModule.V2_MODELS`, "Not tested on hardware".
+- Not done: optimizer, SENSE, firmware/serial, VG language write, listening modes, LE Audio, 10-band EQ UI scale, self test on v2.
 
 ## Home screen widgets (Jetpack Glance 1.2)
 
@@ -309,3 +326,129 @@ downloads its `GraphicEQ.txt` correction and fits it onto the headset's six band
   and dropped as soon as a band is moved by hand.
 
 For oratory1990's WH-1000XM4 measurement the fit is Clear Bass −2, +1, +2, +5, +2, +2 (RMS 1.5 dB vs 3.1 dB flat).
+
+## Device modules
+
+Hush is one app with one UI; what differs between devices is what they can do. Every brand is a Gradle module
+under `devices/` that reports state and capabilities; the app draws the same pages for all of them.
+
+```
+:app            shell (DeviceModules, MainActivity with the device switcher) + the shared pages:
+                DeviceUi (Listen / Sound / Device), AutoEqSheet, UpdatesPage, DeviceDetailsPage, AboutPage
+:ui             design kit: theme, rows, sheets, TabScaffold, DeviceShell (tabs), ProductHero, EqualizerHero,
+                PresetChips, NowPlayingCard + NowPlaying (phone media session), FullScreenPage, StatusCard
+:devices:api    DeviceModule + DeviceController contract, DeviceSwitcher, AutoEq, AppUpdate, appIntent()
+:devices:sony   SonyModule / SonyController (+ SonyEqualizer, SonyFirmware) and Sony-only sections and features;
+                sony/wired: Sound Connect's 22 passive wired models (SonyWired, SonyWiredController)
+:devices:apple  AppleModule / EarPodsController: EarPods (USB-C)
+:core           Sony MDR protocol and session, shared with :wear and :tv
+```
+
+- `DeviceController` = `state: StateFlow<DeviceState>` (name, connection, battery, hero chips, track, volume, card
+  facts, details…) + optional capabilities (`equalizer: Equalizer?`, `firmware: Firmware?`, `setVolume`) + slots for
+  what only that device has (`listenSections` / `soundSections` / `deviceSections`, `CardActions`, `aboutRows`,
+  `PlayerBadge`, `Overlays`, `Gate` for permission/picker screens, `statusPane`). A missing capability = that part of
+  the shared page isn't shown.
+- Shared pages: Listen = hero (render, battery or status label, chips) + device sections + player (phone media
+  session, device track/volume as fallback). Sound = EQ hero (bands, compare, reset, optional on/off) + preset groups
+  + AutoEq + device sections. Device = device card (+ device actions) + device sections + About (Updates: Hush and
+  the device's firmware; device's own rows; Device details; About Hush).
+- AutoEq: `Equalizer.autoEq: AutoEqTarget` says how a correction lands — Sony fits it onto six bands, the EarPods'
+  phone-side EQ takes the curve as is.
+- Device sections are `LazyStaggeredGridScope` extensions; Sony reads its state through a Compose `mutableStateOf`
+  snapshot so the grid rebuilds when the headset changes.
+- Modules can't see `:app` classes (`appIntent(context)` opens the app). Resources are non-transitive:
+  `com.occaecat.hush.ui.R` for shared ones, `com.occaecat.hush.sony.R` for Sony's. Kotlin packages of the moved Sony
+  code stayed `com.occaecat.hush.*`; keep file names unique per package across modules (same-name files clash at dex).
+- Shared app features (any device): the EQ library (`EqLibrary`: curves per equalizer layout, dB, `HUSHEQ2` share
+  codes, old `HUSHEQ1` XM4 codes still import; Sony's old `sound.json` library migrates on start), the sleep timer
+  (`SleepTimer` + `SleepTarget`: the device's own volume and power, or the phone's music volume), Insights (per device
+  key, battery only for devices with one; old XM4 data migrates to key `sony`; Hearing is merged — one weekly dose
+  for the listener, bars stacked by device, and one minute-tick for all devices so a minute goes to the device that
+  plays (it says so, else the newest connection), never to two; Find my devices is one page with a card per
+  registered device), home screen widgets (show
+  `DeviceModules.current`, modes and switches from `QuickControls`), Updates, About, AutoEq, device details.
+- Shared device capabilities (`devices/api/.../DeviceControls.kt`), drawn by the shared pages in
+  `devices/api/.../ui/DeviceSettings.kt`, so a new brand fills in data rather than drawing UI:
+  - `NoiseControl`: modes (kind, button glyph, widget glyph), level and Focus on voice under a mode with `hasOptions`;
+    the Listen card, the ColorOS quick panel and the widgets' modes (`quickModes`) all come from it.
+  - `DeviceState.batteries`: one `BatteryLevel` or several (left / right / case); `battery` / `charging` are the
+    "how long does it last" view (lowest bud, never the case). The hero and the device card show all of them.
+  - `settings()`: `SettingsGroup`s of `Setting.Toggle` / `Choice` / `Action` for Listen, Sound or Device. Choice
+    sheets, "reconnect?" confirmations (`Confirm`), notes under a group and running actions (spinner + button) are
+    the shared UI's. Sony's DSEE / Speak-to-Chat switches, Buttons, Wearing, Conversation and Power & prompts are
+    this now (`ui/SonySettings.kt`); only rows that need their own layout (Sony's connection / peer list) stay sections.
+- Way forward (from Gadgetbridge, Galaxy Buds Client and OpenFreebuds): a module per brand (protocol), a model as
+  data (which capabilities, ranges, presets), refined at runtime by what the device reports (Sony's support-function
+  list); add a capability to `DeviceControls.kt` when a second brand needs the same thing.
+- Devices are registered (`DeviceRegistry`, `files/devices.json`): the switcher lists every registered device,
+  connected or not, plus "Add device". Modules report live devices (`devices`, for "connected"), what they can see
+  (`candidates`: paired Sony headsets by name or alias, plugged-in EarPods), their `models` for adding by hand, and
+  hooks: `scan`, `onOpen` (Sony connects to the opened headset), `onRemove` (Sony forgets it), `remembered` (moved into
+  the registry once on upgrade). With nothing registered the add screen is the app. A found unit that isn't registered
+  gets one "New device found" prompt; "Not now" is remembered. Add screen: Found, then brand → model → how to get it
+  ready, its found units, and "Add" for models that need no unit (EarPods).
+- Microphone test (any device with `DeviceController.microphone`): records 5 s from the device's mic (or the phone's,
+  to compare) and plays it back, with peak and background levels (`features/MicTest.kt`, `ui/MicTestPage.kt`).
+  Bluetooth mics exist only on the call profile: the headset becomes the communication device while recording (music
+  pauses, 16 kHz), then the route is dropped and playback goes over A2DP. USB picks the input/output directly (48 kHz).
+- Scenes and automation (any device with noise control or an EQ; `devices/api/.../scenes`, `sound/Automation.kt`,
+  `app/.../ui/SceneChips.kt`, `AutomationPages.kt`): per device key, scenes (noise mode + level + voice, an EQ preset /
+  library curve / Off, volume, `SceneSwitches` such as Sony's Speak-to-Chat), Adaptive Sound Control (activities, places)
+  and app profiles. Places are shared by all devices, what happens there is per device. Everything is applied through
+  `NoiseControl.apply`, `Equalizer` (+ `snapshot`/`restore` to put the EQ back) and `setVolume`; the app feeds
+  `DeviceModules.targets` (connected, ready devices). Devices without saved settings get defaults built from their
+  modes. Hush 0.17's Sony `sound.json` migrates into `scenes.json` (`legacySony`, taken by the first Sony headset);
+  `AutomationReceiver` / `MediaWatcher` kept their class names so geofences and notification access survive.
+- Wired headphones (`devices/api/.../wired`): `PhoneEq` is the one phone-side EQ effect (DynamicsProcessing on session
+  0; the device that applied it last owns it, so one going away doesn't switch off another's), `PhoneEqualizer` is a
+  device's settings + the shared `Equalizer` / widget switch / AutoEq row on top of it, `PhoneEqService` keeps the
+  process alive while it runs, `WiredAudio` watches the jack and USB audio outputs (self-identifying accessories
+  `claim` theirs — EarPods claim USB while attached; the rest is `free`), `RemoteRender` caches makers' renders.
+  `Transport.WIRED` = passive headphone; `Transport.icon` / `found` for the shared screens.
+- Sony wired (`devices/sony/.../sony/wired`): the models Sound Connect lists as wired — its 360 Reality Audio device
+  list (`GET api.iac.meta.ndmdhs.com/v1/device/list`, no auth, type `passive`; `IaDeviceModel`, `jm0.n`
+  "Search for wired headphones from a list"). Renders: `image.iac.meta.ndmdhs.com/device/<name>/icon.png`
+  (transparent, trimmed). Added by hand (brand page groups "Wired · over-ear / in-ear"); since they can't be told
+  apart, the registered wired model opened last is the one on the free wired output. Each gets its own phone EQ
+  (`wired_eq_<id>`), AutoEq ("Sony <model>"), Insights (`sony:wired-<id>`, phone volume), sleep timer and, when the
+  cable has a mic line, the mic test. Sound Connect itself only offers 360RA registration for them (needs a Sony
+  account, ear photos and a partner app) — not ported.
+- Still Sony-only (tied to its protocol): Find Your Equalizer and the hearing
+  test (Sony's six-band tables), help, backup, the tile, notification,
+  ColorOS card, Xposed.
+- New brand: `devices/<brand>` shaped like `devices/apple`, include it in `settings.gradle.kts`, depend on it from
+  `:app`, add it to `DeviceModules.all`.
+
+### Demo devices
+
+A model page has "Add as demo" when its module says `hasDemo(model)` (Sony: every Bluetooth model). It registers
+"<model> (demo)" with the address `demo:<model id>` (`Device.isDemo`, `demoCandidate`). `DeviceModules` asks the
+module for `demoController` instead of `controller`, and never calls `onOpen` / `onRemove` for it. The switcher shows
+"Demo"; a demo is never `active`, so it doesn't take the screen from a real device and scenes don't target it.
+
+Sony's demo is a `SonyController` over `HeadphonesController.demo(state)`: a second controller that starts from a
+canned state (`ui/Demo.kt`; models without their own get one of the same kind, renamed so the model's picture shows),
+has no Bluetooth, watchers or saved address, and only updates its own state. `HeadphonesState.demo` turns off the
+self test, which would otherwise probe the real headset.
+
+## Apple EarPods (USB-C)
+
+`:devices:apple` (`com.occaecat.hush.apple`). USB 05AC:110B, firmware 26.81 on the reference pair.
+Three configurations: UAC2, UAC3 BADD Headset (subclass 0x24) and full UAC3, announced through BOS Configuration
+Summary capabilities; 48 kHz only (16/24-bit stereo out, mono mic); HID consumer remote (play/pause, vol±, voice
+command) plus an Apple vendor HID channel (usage page 0xFF00, 63-byte reports, protocol unknown, not used). Feature
+units only do mute/volume, and there is a hardware sidetone mixer (ALSA "Sidetone Mixing") that Android doesn't expose.
+
+- **Listing**: `AppleModule` lists the EarPods only while plugged in, so plugging them in switches the app to them.
+  `UsbAttachedActivity` carries the `USB_DEVICE_ATTACHED` filter (`xml/usb_earpods.xml`): "Always open Hush" there
+  also grants USB access; otherwise "Allow USB access" asks.
+- **Authenticity** (`apple/usb/EarPodsCheck.kt`): compares IDs, names, serial format, device descriptor, the three audio
+  configurations, HID report lengths (31/42), endpoint packet sizes, power and the BOS BADD headset summary with the
+  reference pair (fixtures in `devices/apple/src/test/resources/usb/`, `EarPodsCheckTest`). A fingerprint, not crypto.
+- **Equalizer** (`apple/earpods/SoftEq.kt`): `DynamicsProcessing` on session 0, 31 third-octave pre-EQ bands from the user's 10
+  bands (±12 dB) plus an optional AutoEq GraphicEQ correction, input lowered by the largest boost, limiter on.
+  `EarPodsService` (FGS) keeps the process alive while plugged in with the EQ on. Verified on ColorOS 16 2026-10-19: the
+  effect sits on the mixer thread that is routed to `AUDIO_DEVICE_OUT_USB_HEADSET` during playback.
+- Apple links (user guide PDF, manuals page 301005, checkcoverage, Platform Security "Verifying accessories",
+  apple.com/sound, warranty, store) are in `AppleLinks`.

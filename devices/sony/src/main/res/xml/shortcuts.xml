@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="ask_chatgpt"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_assistant"
+        android:shortcutShortLabel="@string/shortcut_chatgpt">
+        <intent
+            android:action="com.occaecat.hush.ASK"
+            android:targetPackage="com.occaecat.hush"
+            android:targetClass="com.occaecat.hush.assistant.VoiceCommandActivity">
+            <extra android:name="who" android:value="CHATGPT" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="ask_claude"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_assistant"
+        android:shortcutShortLabel="@string/shortcut_claude">
+        <intent
+            android:action="com.occaecat.hush.ASK"
+            android:targetPackage="com.occaecat.hush"
+            android:targetClass="com.occaecat.hush.assistant.VoiceCommandActivity">
+            <extra android:name="who" android:value="CLAUDE" />
+        </intent>
+    </shortcut>
+</shortcuts>
