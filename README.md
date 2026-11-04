@@ -111,6 +111,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 </details>
 
+## Roadmap
+
+Multi-device switching and remote control through a Hush network, among other plans: [docs/ROADMAP.md](docs/ROADMAP.md).
+
 ## Disclaimer
 
 Hush is an independent project and is not affiliated with, endorsed or supported by Sony, Apple or any other headphone maker. Product names and logos are trademarks of their owners: Sony, WH-1000XM4, Sound Connect, DSEE Extreme and LDAC belong to Sony Group Corporation; Apple and EarPods belong to Apple Inc.
