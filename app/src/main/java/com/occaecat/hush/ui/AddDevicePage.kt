@@ -166,17 +166,6 @@ fun WelcomeScreen(onAdd: (Candidate) -> Unit, onBrand: (String) -> Unit) {
                 "Welcome to Hush", style = MaterialTheme.typography.displaySmallEmphasized,
                 modifier = Modifier.padding(start = Space.s, top = Space.l, bottom = Space.xs),
             )
-            Text(
-                "Liberate your headphones from vendor apps.", style = MaterialTheme.typography.titleMediumEmphasized,
-                color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = Space.s),
-            )
-            Text(
-                "No accounts, no tracking, no shady software. Works with " +
-                    DeviceModules.all.map { it.brand }.joinToString(" and ") + " for now, more brands soon.\n\n" +
-                    "Add your headphones to get started. Added devices stay in the device switcher even while they're off.",
-                style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = Space.s, end = Space.s, top = Space.s),
-            )
             StartPage(state, onBrand)
         }
     }
@@ -698,7 +687,7 @@ private fun ColumnScope.ModelPage(state: AddDeviceState, module: DeviceModule, m
  * [morph] reshapes the disc (circle → cookie) while it travels between the brand list and the model page.
  */
 @Composable
-private fun ModelThumb(
+internal fun ModelThumb(
     model: Model?,
     enabled: Boolean = true,
     size: Dp = 40.dp,
@@ -736,7 +725,7 @@ private fun ModelThumb(
 }
 
 /** A disc's circle → cookie morph and how far along it is. */
-private class DiscMorph(val morph: Morph, val progress: androidx.compose.runtime.State<Float>)
+internal class DiscMorph(val morph: Morph, val progress: androidx.compose.runtime.State<Float>)
 
 /**
  * Follows the page transition: on the model page ([onPage]) the disc is a cookie while the page is shown and a circle

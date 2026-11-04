@@ -114,6 +114,9 @@ interface DeviceHost {
     /** The add-device screen. */
     fun add()
     fun remove(device: Device)
+    /** [device]'s picture in lists (the device switcher): how it connects, unless the shell has the model's render. */
+    @androidx.compose.runtime.Composable
+    fun Thumb(device: Device) = com.occaecat.hush.ui.LeadIcon(device.transport.icon)
 }
 
 val LocalDeviceHost = compositionLocalOf<DeviceHost?> { null }

@@ -2,6 +2,10 @@
 
 package com.occaecat.hush.ui
 
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -252,7 +256,11 @@ fun SceneSheet(
                     }
                 }
                 val mode = noise.modes.firstOrNull { it.id == action.noise }
-                AnimatedVisibility(mode?.levelRange != null || mode?.hasOptions == true) {
+                AnimatedVisibility(
+                    mode?.levelRange != null || mode?.hasOptions == true,
+                    enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                    exit = shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+                ) {
                     Column(Modifier.padding(top = Space.m)) {
                         mode?.levelRange?.let { r ->
                             val v = action.level ?: r.first

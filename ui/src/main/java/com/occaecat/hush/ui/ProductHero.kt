@@ -2,6 +2,9 @@
 
 package com.occaecat.hush.ui
 
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -175,6 +178,11 @@ fun ProductHero(
                 // Behind the render a blob takes the shape of the noise mode (sealed cookie, open flower, plain
                 // circle) and jiggles into each new one; tapping squishes the whole thing and re-reads the battery.
                 val press = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                var taps by remember { mutableIntStateOf(0) }
+                var lastTap by remember { mutableLongStateOf(0L) }
+                val roll = remember { androidx.compose.animation.core.Animatable(0f) }
+                val scope = androidx.compose.runtime.rememberCoroutineScope()
+                val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
                 val blob by androidx.compose.animation.animateColorAsState(
                     blobColor, MaterialTheme.motionScheme.slowEffectsSpec(), label = "blob",
                 )
@@ -183,13 +191,31 @@ fun ProductHero(
                         .squishy(press, 0.9f)
                         .clickable(
                             interactionSource = press, indication = null,
-                            enabled = onTap != null, onClickLabel = tapLabel, onClick = { onTap?.invoke() },
+                            enabled = onTap != null, onClickLabel = tapLabel,
+                            onClick = {
+                                onTap?.invoke()
+                                // Easter egg: seven quick taps and the headphones do a barrel roll.
+                                val now = System.currentTimeMillis()
+                                taps = if (now - lastTap < 600) taps + 1 else 1
+                                lastTap = now
+                                if (taps >= 7) {
+                                    taps = 0
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                    // Two more turns from wherever it is (a roll under way just goes on), on the
+                                    // expressive slow spring's bounce; two turns are a long way, so it is softer
+                                    // than that spring and reads as a roll: it swings a little past and settles.
+                                    scope.launch {
+                                        roll.animateTo(roll.targetValue + 720f, androidx.compose.animation.core.spring(0.8f, androidx.compose.animation.core.Spring.StiffnessVeryLow))
+                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.Confirm)
+                                    }
+                                }
+                            },
                         )
                         .morphingBlob(blobShape, blob, spinMillis = if (connected) 40_000 else 90_000),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (busy) LoadingIndicator(Modifier.align(Alignment.TopCenter).size(40.dp))
-                    image(Modifier.fillMaxSize(0.94f))
+                    image(Modifier.fillMaxSize(0.94f).graphicsLayer { rotationZ = roll.value })
                 }
                 Text(
                     name,

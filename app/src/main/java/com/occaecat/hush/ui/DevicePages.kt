@@ -2,6 +2,9 @@
 
 package com.occaecat.hush.ui
 
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -133,6 +136,8 @@ private fun ListenPage(c: DeviceController, s: DeviceState, settings: List<Setti
         }) else null,
     ) {
         s.banner?.let { wideItem { SettlingBanner(it, ItemWidth) } }
+        // Disconnected, the hero already says so; below it, what to do (or all of it, when the hero is hidden).
+        if (!s.connected) wideItem { if (showHero) DisconnectedHelp(s, ItemWidth) else NotConnected(c, s, ItemWidth) }
         if (s.connected) c.noise?.let { noise ->
             item {
                 val ui by noise.state.collectAsState()
@@ -211,10 +216,10 @@ private fun SoundPage(c: DeviceController, s: DeviceState, key: String, settings
                     SectionHeader("Personalize")
                     SegmentedGroup {
                         ValueRow(0, 2, Icons.Outlined.AutoGraph, "AutoEq",
-                            applied?.let { "AutoEq · $it" } ?: "Fit a measured correction to your equalizer",
+                            applied?.let { "AutoEq · $it" },
                             enabled = eqState?.enabled != false) { autoEqOpen = true }
                         ValueRow(1, 2, Icons.Outlined.LibraryMusic, "EQ library",
-                            when (n) { 0 -> "Save, share and import curves"; 1 -> "1 saved curve"; else -> "$n saved curves" },
+                            when (n) { 0 -> null; 1 -> "1 saved curve"; else -> "$n saved curves" },
                             modifier = Modifier.sharedPage(Route.EqLibrary(key).pageKey!!)) { nav.push(Route.EqLibrary(key)) }
                     }
                 }
@@ -238,7 +243,7 @@ private fun DevicePage(c: DeviceController, s: DeviceState, key: String, setting
     val fwChecking = fw?.checking() == true
     TabScaffold(title = "Device", subtitle = null) {
         s.banner?.let { wideItem { SettlingBanner(it, ItemWidth) } }
-        item { DeviceCard(c, s, ItemWidth.padding(top = Space.s)) }
+        item { DeviceCard(c, s, key, ItemWidth.padding(top = Space.s)) }
         if (s.connected) settings.forEach { g -> item { SettingsGroupView(g, ItemWidth) } }
         c.deviceSections(this)
         if (s.connected && c.microphone != null) item { MicTestRow(ItemWidth) { nav.push(Route.MicTest(key)) } }
@@ -254,13 +259,10 @@ private fun DevicePage(c: DeviceController, s: DeviceState, key: String, setting
                     nav.push(Route.Updates(key))
                 } to Route.Updates(key).pageKey)
                 addAll(c.aboutRows.map { it to null })
-                add(com.occaecat.hush.devices.AboutRow(Icons.Outlined.Tune, "Features", "What runs on the headphones, what on this phone") {
+                add(com.occaecat.hush.devices.AboutRow(Icons.Outlined.Tune, "Features", null) {
                     nav.push(Route.Features(key))
                 } to Route.Features(key).pageKey)
-                if (s.details.isNotEmpty()) add(com.occaecat.hush.devices.AboutRow(Icons.Outlined.Info, "Device details", s.model) {
-                    nav.push(Route.Details(key))
-                } to Route.Details(key).pageKey)
-                add(com.occaecat.hush.devices.AboutRow(Icons.Outlined.Favorite, "About Hush", "Version, author, licenses") {
+                add(com.occaecat.hush.devices.AboutRow(Icons.Outlined.Favorite, "About Hush", null) {
                     nav.push(Route.About(key))
                 } to Route.About(key).pageKey)
             }
@@ -279,20 +281,39 @@ private fun DevicePage(c: DeviceController, s: DeviceState, key: String, setting
 
 /** Who the device is, at a glance: render, model, short facts, and the device's own actions. */
 @Composable
-private fun DeviceCard(c: DeviceController, s: DeviceState, modifier: Modifier) {
+private fun DeviceCard(c: DeviceController, s: DeviceState, key: String, modifier: Modifier) {
+    var showDetails by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val colors = MaterialTheme.colorScheme
+    if (showDetails) DeviceDetailsSheet(s.details) { showDetails = false }
     Surface(modifier, shape = MaterialTheme.shapes.extraLarge, color = colors.surfaceContainerHigh) {
         Column(Modifier.padding(Space.m)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 c.Render(Modifier.size(88.dp), s.connected)
                 Spacer(Modifier.width(Space.m))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.s)) {
                     // Device is about the hardware: the model, not the phone's nickname for it.
-                    Text(s.model ?: s.name, style = MaterialTheme.typography.titleLargeEmphasized)
-                    val facts = (if (s.connected) batteryFacts(s.batteries) else emptyList()) + s.cardFacts
-                    if (facts.isNotEmpty()) androidx.compose.foundation.layout.FlowRow(
+                    val title = @Composable {
+                        Text(s.model ?: s.name, style = MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.weight(1f, fill = false))
+                    }
+                    if (s.details.isNotEmpty()) Row(
+                        Modifier.clip(MaterialTheme.shapes.small).clickable { showDetails = true },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        title()
+                        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "Device details", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else Row { title() }
+                    if (s.connected && s.batteries.isNotEmpty()) BatteryStatus(s.batteries) { c.partImage(it) }
+                    val chips = if (s.connected) s.heroChips.take(1) else emptyList()
+                    val facts = s.cardFacts.filter { f -> chips.none { it.label == f } }
+                    if (chips.isNotEmpty() || facts.isNotEmpty()) androidx.compose.foundation.layout.FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(Space.xs), verticalArrangement = Arrangement.spacedBy(Space.xs),
-                    ) { facts.forEach { Fact(it) } }
+                        itemVerticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        chips.forEach { chip ->
+                            chip.logo?.let { LogoPill(it, chip.label, dimmed = chip.dimmed, tight = chip.tight) } ?: Pill(chip.label)
+                        }
+                        facts.forEach { Fact(it) }
+                    }
                 }
             }
             val host = com.occaecat.hush.devices.LocalDeviceHost.current
@@ -300,11 +321,9 @@ private fun DeviceCard(c: DeviceController, s: DeviceState, modifier: Modifier) 
             Spacer(Modifier.height(Space.m))
             Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
                 with(c) { CardActions() }
-                if (host?.current != null) androidx.compose.material3.OutlinedButton(
-                    onClick = { removing = true }, Modifier.weight(1f),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
-                ) {
-                    Icon(Icons.Outlined.DeleteOutline, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Remove", maxLines = 1)
+                // Icon only: three labelled buttons don't fit a phone ("Disconne…"), and Remove asks first anyway.
+                if (host?.current != null) androidx.compose.material3.OutlinedIconButton(onClick = { removing = true }) {
+                    Icon(Icons.Outlined.DeleteOutline, "Remove")
                 }
             }
             val device = host?.current
@@ -348,6 +367,16 @@ fun SettlingBanner(text: String, modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+/** Listen while the device isn't connected, under the hero: what to do, or a plain hint when the device has none. */
+@Composable
+private fun DisconnectedHelp(s: DeviceState, modifier: Modifier) {
+    Text(
+        s.disconnectedHelp ?: "Connect ${s.name} to this phone and its controls show up here.",
+        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center, modifier = modifier.padding(horizontal = Space.l, vertical = Space.l),
+    )
 }
 
 /** Sound while the device isn't connected: the render, dimmed, and what to do. */

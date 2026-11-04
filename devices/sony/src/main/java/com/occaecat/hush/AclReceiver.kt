@@ -14,9 +14,11 @@ class AclReceiver : BroadcastReceiver() {
             HeadphonesController.get(context)
             return
         }
-        val saved = context.getSharedPreferences("hush", Context.MODE_PRIVATE).getString("address", null) ?: return
         @Suppress("DEPRECATION")
-        val device = intent.getParcelableExtra<android.bluetooth.BluetoothDevice>(android.bluetooth.BluetoothDevice.EXTRA_DEVICE)
-        if (device?.address == saved) HeadphonesController.get(context)
+        val device = intent.getParcelableExtra<android.bluetooth.BluetoothDevice>(android.bluetooth.BluetoothDevice.EXTRA_DEVICE) ?: return
+        // Any Sony headset the user added, not just one: the registry is loaded in Application.onCreate.
+        val added = com.occaecat.hush.devices.DeviceRegistry.items.value
+            .any { it.moduleId == "sony" && it.address.equals(device.address, ignoreCase = true) }
+        if (added) HeadphonesController.get(context)
     }
 }

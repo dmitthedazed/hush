@@ -135,8 +135,12 @@ class DeviceCardProvider : ContentProvider() {
     private fun requireHost() {
         val uid = Binder.getCallingUid()
         if (uid == Process.myUid() || uid == 0 || uid == Process.SHELL_UID) return
-        val packages = context!!.packageManager.getPackagesForUid(uid).orEmpty()
-        if (packages.none { it in HOSTS }) throw SecurityException("Not a ColorOS host")
+        val pm = context!!.packageManager
+        // The name alone isn't enough: off ColorOS any app could take it. The real hosts are on the system image.
+        val host = pm.getPackagesForUid(uid).orEmpty().any { p ->
+            p in HOSTS && runCatching { pm.getApplicationInfo(p, 0).flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM != 0 }.getOrDefault(false)
+        }
+        if (!host) throw SecurityException("Not a ColorOS host")
     }
 
     override fun getType(uri: Uri) = "vnd.android.cursor.dir/vnd.${DeviceCard.AUTHORITY}.device_info"

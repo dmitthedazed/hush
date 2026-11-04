@@ -102,7 +102,7 @@ internal fun LazyStaggeredGridScope.sonySound(state: HeadphonesState, vm: Headph
                     when (r) {
                         "fye" -> ValueRow(
                             i, rows.size, Icons.Outlined.Hearing, "Find Your Equalizer",
-                            "Pick the sound you like by ear; saved to Custom 2",
+                            null,
                             onClick = { fyeOpen = true },
                         )
                         "hearing" -> ValueRow(

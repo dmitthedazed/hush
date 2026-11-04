@@ -156,7 +156,7 @@ private fun HeaderSwitch(title: String, text: String, on: Boolean, onChange: (Bo
 private fun RuleRow(i: Int, n: Int, live: Boolean, lead: @Composable () -> Unit, title: String, value: String, onClick: () -> Unit) {
     SegmentedListItem(
         onClick = onClick,
-        shapes = ListItemDefaults.segmentedShapes(index = i, count = n),
+        shapes = segShapes(index = i, count = n),
         colors = ListItemDefaults.colors(
             containerColor = if (live) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
         ),
@@ -427,7 +427,7 @@ private fun AppPickerSheet(exclude: Set<String>, onDismiss: () -> Unit, onPick: 
                     itemsIndexed(shown, key = { _, a -> a.pkg }) { i, a ->
                         SegmentedListItem(
                             onClick = { onPick(a) },
-                            shapes = ListItemDefaults.segmentedShapes(index = i, count = shown.size),
+                            shapes = segShapes(index = i, count = shown.size),
                             colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                             leadingContent = { a.icon?.let { Image(it, null, Modifier.size(40.dp)) } ?: LeadIcon(Icons.Outlined.Apps) },
                             content = { Text(a.label) },

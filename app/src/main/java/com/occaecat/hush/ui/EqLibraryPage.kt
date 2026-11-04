@@ -72,12 +72,14 @@ fun EqLibraryPage(eq: Equalizer, onClose: () -> Unit) {
     val range = current?.range ?: -10..10
 
     FullScreenPage("EQ library", onClose) {
-        Text(
-            listOfNotNull("Keep as many equalizer curves as you like.", eq.libraryNote).joinToString(" "),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = Space.s),
-        )
+        eq.libraryNote?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = Space.s),
+            )
+        }
         Spacer(Modifier.height(Space.m))
         Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
             FilledTonalButton(onClick = { naming = true }, enabled = current?.levels?.isNotEmpty() == true, modifier = Modifier.weight(1f).height(48.dp)) {
@@ -104,7 +106,7 @@ fun EqLibraryPage(eq: Equalizer, onClose: () -> Unit) {
                 var menu by remember { mutableStateOf(false) }
                 SegmentedListItem(
                     onClick = { eq.applyLevels(item.levels) },
-                    shapes = ListItemDefaults.segmentedShapes(index = i, count = items.size),
+                    shapes = segShapes(index = i, count = items.size),
                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                     leadingContent = { CurveShape(item.levels, range, Modifier.size(width = 56.dp, height = 32.dp)) },
                     supportingContent = { Text(item.source ?: "Tap to apply", maxLines = 1, overflow = TextOverflow.Ellipsis) },

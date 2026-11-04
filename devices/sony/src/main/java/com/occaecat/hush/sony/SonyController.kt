@@ -135,10 +135,6 @@ class SonyController(
             volume = s.volume,
             volumeSteps = s.volumeSteps,
             source = if (src == null || src.name == me) Icons.Outlined.Smartphone to "This phone" else Icons.Outlined.Laptop to src.name,
-            cardFacts = listOfNotNull(
-                s.codec?.label?.takeIf { connected && it != "—" },
-                s.firmware?.let { "v$it" },
-            ),
             details = sonyDetails(s),
             disconnectedHelp = s.error?.takeIf { s.protocolV2 }
                 ?: ("Make sure ${s.deviceName ?: "the headphones"} are on and connected in Bluetooth settings. " +

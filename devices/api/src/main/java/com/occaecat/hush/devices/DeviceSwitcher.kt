@@ -2,6 +2,8 @@
 
 package com.occaecat.hush.devices
 
+import com.occaecat.hush.ui.segShapes
+import com.occaecat.hush.ui.segShapes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,7 +31,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.occaecat.hush.ui.LeadIcon
 import com.occaecat.hush.ui.SegmentedGroup
 import com.occaecat.hush.ui.Space
 import kotlinx.coroutines.launch
@@ -64,9 +65,9 @@ fun DeviceSwitcher() {
                     SegmentedListItem(
                         selected = picked,
                         onClick = { close { if (!picked) host.open(d) } },
-                        shapes = ListItemDefaults.segmentedShapes(index = i, count = host.all.size),
+                        shapes = segShapes(index = i, count = host.all.size),
                         colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                        leadingContent = { LeadIcon(d.transport.icon) },
+                        leadingContent = { host.Thumb(d) },
                         supportingContent = {
                             Text(
                                 if (d.isDemo) "Demo" else if (d.active) "Connected" else "Not connected",

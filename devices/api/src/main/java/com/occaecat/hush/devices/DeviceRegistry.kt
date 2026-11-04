@@ -1,6 +1,7 @@
 package com.occaecat.hush.devices
 
 import android.content.Context
+import android.util.Log
 import androidx.annotation.DrawableRes
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -65,6 +66,7 @@ object DeviceRegistry {
     val dismissed: StateFlow<Set<String>> = _dismissed
 
     private var file: File? = null
+    private var writer: DiskWriter? = null
 
     /** True on the first start with a registry: callers move what older versions remembered into it. */
     var fresh = false
@@ -74,20 +76,28 @@ object DeviceRegistry {
         if (file != null) return
         val f = File(context.applicationContext.filesDir, "devices.json")
         file = f
+        writer = DiskWriter(f)
         fresh = !f.exists()
         if (f.exists()) runCatching {
             val o = JSONObject(f.readText())
             val a = o.optJSONArray("devices") ?: JSONArray()
-            _items.value = List(a.length()) { i ->
-                val e = a.getJSONObject(i)
-                Entry(
-                    e.getString("key"), e.getString("module"), e.getString("model"), e.getString("name"),
-                    runCatching { Transport.valueOf(e.getString("transport")) }.getOrDefault(Transport.BLUETOOTH),
-                    e.optString("address").takeIf { it.isNotEmpty() && it != "null" }, e.optLong("added"),
-                )
+            // One broken entry costs that device only, not the whole list.
+            _items.value = (0 until a.length()).mapNotNull { i ->
+                runCatching {
+                    val e = a.getJSONObject(i)
+                    Entry(
+                        e.getString("key"), e.getString("module"), e.getString("model"), e.getString("name"),
+                        runCatching { Transport.valueOf(e.getString("transport")) }.getOrDefault(Transport.BLUETOOTH),
+                        e.optString("address").takeIf { it.isNotEmpty() && it != "null" }, e.optLong("added"),
+                    )
+                }.onFailure { Log.w("Hush", "skipping a broken device entry", it) }.getOrNull()
             }
             val d = o.optJSONArray("dismissed") ?: JSONArray()
-            _dismissed.value = List(d.length()) { d.getString(it) }.toSet()
+            _dismissed.value = (0 until d.length()).mapNotNull { d.optString(it).takeIf(String::isNotEmpty) }.toSet()
+        }.onFailure {
+            // Keep the unreadable file aside: the next save would overwrite the only copy.
+            Log.w("Hush", "devices.json is unreadable, kept as devices.json.bak", it)
+            runCatching { f.copyTo(File(f.parentFile, "devices.json.bak"), overwrite = true) }
         }
     }
 
@@ -119,13 +129,13 @@ object DeviceRegistry {
     }
 
     private fun save() {
-        val f = file ?: return
+        val w = writer ?: return
         val o = JSONObject()
             .put("devices", JSONArray(_items.value.map { e ->
                 JSONObject().put("key", e.key).put("module", e.moduleId).put("model", e.modelId).put("name", e.name)
                     .put("transport", e.transport.name).put("address", e.address ?: JSONObject.NULL).put("added", e.added)
             }))
             .put("dismissed", JSONArray(_dismissed.value.toList()))
-        runCatching { f.writeText(o.toString()) }
+        w.write(o.toString())
     }
 }

@@ -7,6 +7,10 @@ import android.media.AudioManager
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -393,7 +397,7 @@ private fun CandidateTile(
         Column(Modifier.fillMaxSize()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                AnimatedVisibility(selected) { Icon(Icons.Filled.Check, null, Modifier.size(20.dp)) }
+                AnimatedVisibility(selected, enter = scaleIn(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeIn(MaterialTheme.motionScheme.fastEffectsSpec()), exit = scaleOut(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec())) { Icon(Icons.Filled.Check, null, Modifier.size(20.dp)) }
             }
             Text(subtitle, style = MaterialTheme.typography.bodySmall, maxLines = 2)
             Spacer(Modifier.weight(1f))
@@ -491,7 +495,11 @@ private fun MusicHint(context: Context, modifier: Modifier) {
             delay(1_000)
         }
     }
-    AnimatedVisibility(!playing, modifier) {
+    AnimatedVisibility(
+        !playing, modifier,
+        enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+        exit = shrinkVertically(MaterialTheme.motionScheme.fastSpatialSpec()) + fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+    ) {
         Row(
             Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer, CircleShape)
                 .padding(horizontal = Space.m, vertical = Space.s),

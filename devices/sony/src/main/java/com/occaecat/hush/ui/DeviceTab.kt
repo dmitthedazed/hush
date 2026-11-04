@@ -110,6 +110,37 @@ internal fun LazyStaggeredGridScope.sonyDevice(state: HeadphonesState, vm: Headp
         if (hasConnection) item { ConnectionSection(state, vm, busy, dialogs, ItemWidth) }
         if (state.modelName != null || state.protocolV2) item { SonyAuthenticity(state) }
     }
+    item { SonyBackground(ItemWidth) }
+}
+
+/**
+ * The tile, the My Devices card and Bluetooth settings start the session from the background, which Android only
+ * allows an app exempt from battery optimization. Asked here, on the user's tap, never on start.
+ */
+@Composable
+private fun SonyBackground(modifier: Modifier) {
+    val context = LocalContext.current
+    val power = context.getSystemService(android.os.PowerManager::class.java)
+    var exempt by remember { mutableStateOf(power.isIgnoringBatteryOptimizations(context.packageName)) }
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        exempt = power.isIgnoringBatteryOptimizations(context.packageName)
+        onPauseOrDispose {}
+    }
+    if (exempt) return
+    Column(modifier) {
+        SectionHeader("Background", top = Space.s)
+        SegmentedGroup {
+            ValueRow(0, 1, Icons.Outlined.PowerSettingsNew, "Connect from the background",
+                "Lets the tile and Bluetooth settings start Hush. Tap to allow") {
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                            .setData(android.net.Uri.parse("package:" + context.packageName))
+                    )
+                }
+            }
+        }
+    }
 }
 
 /** Sony's rows in the shared About group. */
@@ -192,7 +223,7 @@ private fun ConnectionSection(state: HeadphonesState, vm: HeadphonesController, 
                             }
                         },
                         enabled = !busy,
-                        shapes = ListItemDefaults.segmentedShapes(index = i, count = n),
+                        shapes = segShapes(index = i, count = n),
                         colors = ListItemDefaults.colors(
                             containerColor = if (state.pairingMode) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
                         ),
@@ -203,7 +234,7 @@ private fun ConnectionSection(state: HeadphonesState, vm: HeadphonesController, 
                             Text(
                                 if (state.pairingMode) "Discoverable now — pick ${state.modelName ?: "the headphones"} in the other device's Bluetooth settings. Tap to stop."
                                 else if (mpOn == false) "Needs multipoint — tap to turn it on first"
-                                else "Make the headphones discoverable for another phone, tablet or laptop",
+                                else "Another phone, tablet or laptop",
                             )
                         },
                         trailingContent = if (state.pairingMode) null else {
@@ -257,7 +288,7 @@ private fun PeerRow(
     val isThisPhone = phoneAddress != null && p.address.equals(phoneAddress, ignoreCase = true)
     SegmentedListItem(
         onClick = { if (p.connected) vm.disconnectPeer(p.address) else vm.connectPeer(p.address) },
-        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
+        shapes = segShapes(index = index, count = count),
         colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         leadingContent = { LeadIcon(if (p.connected) Icons.Outlined.BluetoothConnected else Icons.Outlined.Bluetooth, enabled = p.connected) },
         supportingContent = {

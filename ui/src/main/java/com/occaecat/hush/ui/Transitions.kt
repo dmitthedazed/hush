@@ -10,7 +10,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -39,14 +41,18 @@ val LocalShareSpace = compositionLocalOf { "" }
 /** The [sharedPage] key of the destination being drawn, so its page grows out of the row that opened it. */
 val LocalPageKey = compositionLocalOf<String?> { null }
 
+/** True while a predictive back gesture holds two pages: it moves the top one itself, so nothing is shared. */
+val LocalBackGesture = staticCompositionLocalOf<State<Boolean>> { mutableStateOf(false) }
+
 /**
  * Container transform: a row and the page it opens carry the same [key]; opening the page grows it out of the row,
- * and back (predictive back too) shrinks it into the row again.
+ * and back shrinks it into the row again (predictive back moves the page on its own, [LocalBackGesture]).
  */
 @Composable
 fun Modifier.sharedPage(key: String): Modifier {
     val shared = LocalSharedScope.current ?: return this
     val page = LocalPageScope.current ?: return this
+    if (LocalBackGesture.current.value) return this
     val motion = MaterialTheme.motionScheme
     return with(shared) {
         this@sharedPage.sharedBounds(

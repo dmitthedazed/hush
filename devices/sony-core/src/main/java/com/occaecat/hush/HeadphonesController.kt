@@ -580,6 +580,7 @@ class HeadphonesController internal constructor(
         sessionJob?.cancel()
         connection?.close()
         connection = null
+        approvedAlerts.clear()
         _state.update { it.copy(phase = Phase.IDLE) }
     }
 
@@ -609,7 +610,7 @@ class HeadphonesController internal constructor(
             is MdrEvent.ProtocolInfo -> protocolReply?.complete(e)
             is MdrEvent.SupportedFunctions -> (if (e.table == Table.TWO) functions2Reply else functionsReply)?.complete(e.codes)
             is MdrEvent.Alert -> {
-                if (approvedAlerts.remove(e.type)) answerAlert(e.type, true)
+                if ((approvedAlerts.remove(e.type) ?: 0L) > System.currentTimeMillis()) answerAlert(e.type, true)
                 else _state.update { it.copy(alert = e.type to e.actionType) }
                 return
             }
@@ -854,8 +855,15 @@ class HeadphonesController internal constructor(
         fire(proto.autoPowerOff(id, select))
     }
 
-    /** Alert types the user already confirmed in our own dialog; the headset's prompt is answered for them. */
-    private val approvedAlerts = java.util.Collections.synchronizedSet(mutableSetOf<Int>())
+    /**
+     * Alert types the user already confirmed in our own dialog, until when; the headset's prompt is answered for
+     * them. The headset often applies a change without asking, so an approval lapses instead of waiting forever.
+     */
+    private val approvedAlerts = java.util.concurrent.ConcurrentHashMap<Int, Long>()
+
+    private fun approve(type: Int) {
+        approvedAlerts[type] = System.currentTimeMillis() + ALERT_APPROVAL_MS
+    }
 
     fun answerAlert(type: Int, positive: Boolean) {
         _state.update { it.copy(alert = null) }
@@ -877,7 +885,7 @@ class HeadphonesController internal constructor(
         if (index !in current.indices) return
         val next = current.toMutableList().also { it[index] = preset }
         _state.update { it.copy(assignable = next, customButton = next.first()) }
-        approvedAlerts += Alert.KEY_ASSIGN_CHANGE
+        approve(Alert.KEY_ASSIGN_CHANGE)
         fire(proto.assignable(next))
     }
 
@@ -890,12 +898,12 @@ class HeadphonesController internal constructor(
 
     fun setSoundQualityMode(preferConnection: Boolean) {
         _state.update { it.copy(soundQualityPreferConnection = preferConnection, soundQualityLowLatency = false) }
-        approvedAlerts += Alert.CONNECTION_MODE_CHANGE
+        approve(Alert.CONNECTION_MODE_CHANGE)
         fire(proto.soundQualityMode(preferConnection))
     }
 
     fun setGeneralSetting(id: Int, on: Boolean) {
-        if (id == multipointId()) approvedAlerts += if (on) Alert.MULTIPOINT_ON else Alert.MULTIPOINT_OFF
+        if (id == multipointId()) approve(if (on) Alert.MULTIPOINT_ON else Alert.MULTIPOINT_OFF)
         _state.update { it.copy(generalValues = it.generalValues + (id to on)) }
         fire(proto.general(id, on))
     }
@@ -903,7 +911,7 @@ class HeadphonesController internal constructor(
     /** A LIST_TYPE general setting, e.g. what the WH-1000XM3's NC/AMB button does. */
     fun setGeneralListSetting(id: Int, index: Int) {
         _state.update { it.copy(generalListValues = it.generalListValues + (id to index)) }
-        approvedAlerts += Alert.KEY_ASSIGN_CHANGE
+        approve(Alert.KEY_ASSIGN_CHANGE)
         fire(proto.generalIndex(id, index))
     }
 
@@ -1071,6 +1079,7 @@ class HeadphonesController internal constructor(
         private const val A2DP_SETTLE_MS = 3_000L
         private const val DROP_GRACE_MS = 2_000L
         private const val SETTLE_GRACE_MS = 3_000L
+        private const val ALERT_APPROVAL_MS = 10_000L
         /** Sony's model prefixes: over-ear, earbuds, neckband, and older MDR- models. */
         private val SONY_NAMES = listOf("WH-", "WF-", "WI-", "MDR-", "LinkBuds", "ULT WEAR", "Sony")
         /** How long the handshake waits for PROTOCOL_INFO and SUPPORT_FUNCTION. */

@@ -2,11 +2,25 @@
 
 package com.occaecat.hush.ui
 
+import androidx.compose.material3.toShape
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.material3.MaterialShapes
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.structuralEqualityPolicy
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Color
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -53,7 +67,7 @@ fun MicTestRow(modifier: Modifier, open: () -> Unit) {
     Column(modifier) {
         SectionHeader("Microphone", top = Space.s)
         SegmentedGroup {
-            ValueRow(0, 1, Icons.Outlined.Mic, "Microphone test", "Record yourself and hear how you sound on calls",
+            ValueRow(0, 1, Icons.Outlined.Mic, "Microphone test", null,
                 modifier = Modifier.sharedPage("mic"), onClick = open)
         }
     }
@@ -65,7 +79,10 @@ fun MicTestPage(c: DeviceController, name: String, mic: Microphone, onClose: () 
     val context = LocalContext.current
     val test = remember(mic) { MicTest(context, mic) }
     DisposableEffect(test) { onDispose { test.close() } }
-    val st by test.state.collectAsState()
+    // The level and progress tick ~20 times a second: only what reads them (the meter, the seconds left) follows.
+    val state = test.state.collectAsState()
+    val st by remember(state) { derivedStateOf(structuralEqualityPolicy()) { state.value.copy(level = 0f, progress = 0f) } }
+    val secondsLeft by remember(state) { derivedStateOf { (5 * (1 - state.value.progress)).roundToInt().coerceAtLeast(1) } }
     var source by remember { mutableStateOf(MicTest.Source.DEVICE) }
     var permTick by remember { mutableIntStateOf(0) }
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
@@ -74,39 +91,64 @@ fun MicTestPage(c: DeviceController, name: String, mic: Microphone, onClose: () 
     }
     val granted = remember(permTick) { context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED }
     val busy = st.phase != MicTest.Phase.IDLE
-    val level by animateFloatAsState(st.level, label = "mic level")
+    val motion = MaterialTheme.motionScheme
+    val level = remember(test) { Animatable(0f) }
+    LaunchedEffect(test) { test.state.map { it.level }.distinctUntilChanged().collectLatest { level.animateTo(it, motion.fastSpatialSpec()) } }
 
     FullScreenPage("Microphone test", onClose) {
-        Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-            Column(Modifier.padding(Space.l)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    c.Render(Modifier.size(64.dp), true)
-                    Spacer(Modifier.width(Space.m))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            when (st.phase) {
-                                MicTest.Phase.RECORDING -> "Recording… speak now"
-                                MicTest.Phase.PLAYING -> "Playing back"
-                                MicTest.Phase.IDLE -> if (st.result != null) "How you sound" else "Ready"
-                            },
-                            style = MaterialTheme.typography.titleLargeEmphasized,
-                        )
-                        Text(
-                            when (st.phase) {
-                                MicTest.Phase.RECORDING -> "${(5 * (1 - st.progress)).roundToInt().coerceAtLeast(1)} s left"
-                                MicTest.Phase.PLAYING -> "Through $name"
-                                MicTest.Phase.IDLE -> if (source == MicTest.Source.DEVICE) "From $name's microphone" else "From the phone's microphone"
-                            },
-                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+        val colors = MaterialTheme.colorScheme
+        // The card's colour is drawn, not composed; the text's colour and the meter's follow on the same spring.
+        val container by animateColorAsState(
+            when (st.phase) {
+                MicTest.Phase.RECORDING -> colors.primaryContainer
+                MicTest.Phase.PLAYING -> colors.tertiaryContainer
+                MicTest.Phase.IDLE -> colors.surfaceContainerHigh
+            }, motion.defaultEffectsSpec(), label = "mic hero",
+        )
+        val onContainer by animateColorAsState(
+            when (st.phase) {
+                MicTest.Phase.RECORDING -> colors.onPrimaryContainer
+                MicTest.Phase.PLAYING -> colors.onTertiaryContainer
+                MicTest.Phase.IDLE -> colors.onSurface
+            }, motion.defaultEffectsSpec(), label = "mic hero content",
+        )
+        val meter by animateColorAsState(
+            if (st.phase == MicTest.Phase.PLAYING) colors.tertiary else colors.primary, motion.defaultEffectsSpec(), label = "mic meter",
+        )
+        val hero = MaterialTheme.shapes.extraLarge
+        Surface(
+            Modifier.fillMaxWidth().clip(hero).drawBehind { drawRect(container) },
+            shape = hero, color = Color.Transparent, contentColor = onContainer,
+        ) {
+            Column(Modifier.padding(horizontal = Space.l, vertical = Space.xl), horizontalAlignment = Alignment.CenterHorizontally) {
+                Surface(shape = MaterialShapes.Cookie9Sided.toShape(), color = colors.surface.copy(alpha = 0.55f), modifier = Modifier.size(128.dp)) {
+                    Box(contentAlignment = Alignment.Center) { c.Render(Modifier.size(88.dp), true) }
                 }
+                Spacer(Modifier.height(Space.l))
+                Text(
+                    when (st.phase) {
+                        MicTest.Phase.RECORDING -> "Recording… speak now"
+                        MicTest.Phase.PLAYING -> "Playing back"
+                        MicTest.Phase.IDLE -> if (st.result != null) "How you sound" else "Ready"
+                    },
+                    style = MaterialTheme.typography.headlineSmallEmphasized, textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(Space.xs))
+                Text(
+                    when (st.phase) {
+                        MicTest.Phase.RECORDING -> "$secondsLeft s left"
+                        MicTest.Phase.PLAYING -> "Through $name"
+                        MicTest.Phase.IDLE -> if (source == MicTest.Source.DEVICE) name else "Phone"
+                    },
+                    style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center, color = onContainer.copy(alpha = 0.75f),
+                )
                 Spacer(Modifier.height(Space.l))
                 // The level while recording or playing; flat when idle.
                 LinearWavyProgressIndicator(
-                    progress = { if (busy) level.coerceAtLeast(0.02f) else 0f },
+                    progress = { if (busy) level.value.coerceAtLeast(0.02f) else 0f },
                     modifier = Modifier.fillMaxWidth().height(16.dp),
-                    color = if (st.phase == MicTest.Phase.PLAYING) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+                    color = meter,
+                    trackColor = onContainer.copy(alpha = 0.15f),
                 )
             }
         }
@@ -128,7 +170,10 @@ fun MicTestPage(c: DeviceController, name: String, mic: Microphone, onClose: () 
                     else -> test.record(source)
                 }
             },
-            modifier = Modifier.fillMaxWidth().height(56.dp),
+            modifier = Modifier.fillMaxWidth().height(64.dp),
+            colors = if (busy) androidx.compose.material3.ButtonDefaults.buttonColors(
+                containerColor = colors.errorContainer, contentColor = colors.onErrorContainer,
+            ) else androidx.compose.material3.ButtonDefaults.buttonColors(),
         ) {
             Icon(if (busy) Icons.Outlined.Stop else Icons.Outlined.Mic, null)
             Spacer(Modifier.width(Space.s))
@@ -136,7 +181,7 @@ fun MicTestPage(c: DeviceController, name: String, mic: Microphone, onClose: () 
                 busy -> "Stop"
                 st.result != null -> "Record again"
                 else -> "Record 5 seconds"
-            })
+            }, style = MaterialTheme.typography.titleMedium)
         }
         st.error?.let {
             Spacer(Modifier.height(Space.m))
@@ -159,10 +204,9 @@ fun MicTestPage(c: DeviceController, name: String, mic: Microphone, onClose: () 
                 InfoRow(2, 3, Icons.Outlined.VolumeUp, "Background", "%.0f dBFS".format(r.floorDb) + if (r.floorDb > -40) " · noisy" else " · quiet")
             }
         }
-        Text(
-            listOfNotNull(mic.note, "Recordings stay in memory and are gone when you leave this page.").joinToString(" "),
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = Space.s, vertical = Space.m),
-        )
+        mic.note?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = Space.s, vertical = Space.m))
+        }
     }
 }

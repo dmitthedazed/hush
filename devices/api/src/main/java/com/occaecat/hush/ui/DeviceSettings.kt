@@ -143,8 +143,6 @@ fun NoiseControlCard(noise: NoiseControl, ui: NoiseUi, modifier: Modifier) {
                         Spacer(Modifier.width(Space.m))
                         Column(Modifier.weight(1f)) {
                             Text("Focus on voice", style = MaterialTheme.typography.bodyLarge)
-                            Text("Let voices through, keep the rest quieter", style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(checked = focus, onCheckedChange = noise::setVoiceFocus)
                     }
@@ -198,7 +196,7 @@ private fun ActionRow(index: Int, count: Int, a: Setting.Action) {
     SegmentedListItem(
         onClick = a.onClick,
         enabled = a.enabled,
-        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
+        shapes = segShapes(index = index, count = count),
         colors = ListItemDefaults.colors(
             containerColor = if (a.busy) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
         ),

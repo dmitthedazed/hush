@@ -76,11 +76,11 @@ object EarPodsController : DeviceController {
         return DeviceState(
             name = "EarPods",
             connection = if (s.attached) Connection.CONNECTED else Connection.DISCONNECTED,
-            subtitle = listOfNotNull("Connected", "USB-C", eqLabel).joinToString(" · "),
+            subtitle = if (s.attached) listOfNotNull("Connected", "USB-C", eqLabel).joinToString(" · ") else "Not plugged in · USB-C",
             statusText = if (s.attached) null else "Not plugged in",
             statusLabel = Icons.Outlined.Usb to "Wired",
             blobShape = MaterialShapes.Cookie9Sided,
-            cardFacts = listOfNotNull("USB-C", "48 kHz", s.firmware?.let { "v$it" }),
+            cardFacts = listOfNotNull("USB-C", "48 kHz"),
             model = "EarPods (USB-C)",
             heroChips = listOfNotNull(HeroChip("48 kHz"), eqLabel?.let { HeroChip(it) }),
             details = listOf(
@@ -111,7 +111,8 @@ object EarPodsController : DeviceController {
         val b = bitmap
         if (b != null) Image(
             b.asImageBitmap(), "EarPods", modifier, contentScale = ContentScale.Fit,
-            alpha = if (connected) 1f else 0.5f,
+            // A white render: dimmed further it vanishes into a light surface.
+            alpha = if (connected) 1f else 0.75f,
             colorFilter = if (connected) null else ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }),
         )
         else Box(modifier, contentAlignment = Alignment.Center) {

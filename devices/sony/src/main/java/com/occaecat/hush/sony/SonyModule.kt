@@ -175,7 +175,8 @@ object SonyModule : DeviceModule {
         val vm = HeadphonesController.get(appContext)
         val addr = device.address ?: return
         val s = vm.state.value
-        if (s.address != addr || s.phase == Phase.IDLE || s.phase == Phase.FAILED) {
+        // Controls handed to another source stay there until music plays here or the user takes them back.
+        if (s.address != addr || s.phase == Phase.IDLE || s.phase == Phase.FAILED && s.elsewhere == null) {
             if (ContextCompat.checkSelfPermission(appContext, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) vm.pick(addr)
         }
     }
@@ -225,7 +226,7 @@ object SonyModule : DeviceModule {
     }
 }
 
-/** Once the Bluetooth permission is there: connect, and the one-time asks (notifications, battery). */
+/** Once the Bluetooth permission is there: connect, and the one-time notifications ask. */
 @Composable
 internal fun SonyStartup(vm: HeadphonesController) {
     val context = LocalContext.current
@@ -236,17 +237,7 @@ internal fun SonyStartup(vm: HeadphonesController) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        // The tile, the My Devices card and Bluetooth settings start the session from the background; Android only
-        // lets an app start its foreground service from there when it is exempt from battery optimization.
-        val power = context.getSystemService(android.os.PowerManager::class.java)
-        if (!power.isIgnoringBatteryOptimizations(context.packageName)) {
-            runCatching {
-                context.startActivity(
-                    Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
-                        .setData(android.net.Uri.parse("package:" + context.packageName))
-                )
-            }
-        }
+        // Battery optimization is asked from the Device page (SonyBackground), on the user's tap: Play policy.
     }
 }
 

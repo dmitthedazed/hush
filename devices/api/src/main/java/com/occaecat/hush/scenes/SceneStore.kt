@@ -73,12 +73,14 @@ object SceneStore {
     private val _config = MutableStateFlow(SceneConfig())
     val config: StateFlow<SceneConfig> = _config
     private var file: File? = null
+    private var writer: com.occaecat.hush.devices.DiskWriter? = null
 
     fun init(context: Context) {
         if (file != null) return
         val dir = context.applicationContext.filesDir
         val f = File(dir, "scenes.json")
         file = f
+        writer = com.occaecat.hush.devices.DiskWriter(f)
         if (f.exists()) runCatching { _config.value = decode(JSONObject(f.readText())) }
         else File(dir, "sound.json").takeIf { it.exists() }?.let { old ->
             runCatching { importLegacy(JSONObject(old.readText())) }
@@ -102,7 +104,7 @@ object SceneStore {
     }
 
     private fun save() {
-        file?.let { f -> runCatching { f.writeText(encode(_config.value).toString()) } }
+        writer?.write(encode(_config.value).toString())
     }
 
     /** [key]'s settings: saved ones, Hush 0.17's for the first Sony headset, or defaults from what [c] can do. */
