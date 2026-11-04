@@ -23,6 +23,8 @@ object AppleModule : DeviceModule {
     override val id = "apple"
     override val brand = "Apple"
 
+    override val notice = "Hush is not made, endorsed or supported by Apple. Apple and EarPods are trademarks of Apple Inc."
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private const val EARPODS = "earpods-usb-c"
     private val earPods = Device("$id:$EARPODS", id, "EarPods (USB-C)", Transport.USB, active = true, modelId = EARPODS)

@@ -2,6 +2,15 @@
 
 package com.occaecat.hush.ui
 
+import kotlinx.coroutines.launch
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -100,31 +109,54 @@ fun SleepTimerChip(modifier: Modifier = Modifier) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SleepTimerSheet(onClose: () -> Unit) {
+    val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // Slide the sheet away first; dropping it from the tree would just cut it off.
+    val live by SleepTimer.state.collectAsState()
+    // What the sheet shows freezes as it slides away: the timer just started would otherwise grow its rows mid-slide.
+    var leaving by remember { mutableStateOf<SleepTimer.State?>(null) }
+    val st = leaving ?: live
+    val dismiss: () -> Unit = {
+        if (leaving == null) {
+            leaving = live
+            scope.launch { sheet.hide() }.invokeOnCompletion { onClose() }
+        }
+    }
     val context = LocalContext.current
-    val st by SleepTimer.state.collectAsState()
     var powerOff by remember { mutableStateOf(SleepTimer.powerOffWhenDone(context)) }
-    ModalBottomSheet(onDismissRequest = onClose, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ModalBottomSheet(onDismissRequest = onClose, sheetState = sheet,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column(Modifier.padding(horizontal = Space.m).navigationBarsPadding()) {
             Text("Sleep timer", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(start = Space.s))
             val t = SleepTimer.target
             val noun = t?.noun ?: "headphones"
             val canOff = t?.canPowerOff == true
-            Text("Fades the volume, pauses, then ${if (canOff && powerOff) "turns the $noun off" else "puts the volume back"}.",
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = Space.s, top = Space.xs))
-            Spacer(Modifier.height(Space.m))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s), verticalArrangement = Arrangement.spacedBy(Space.s)) {
-                listOf(15, 30, 45, 60, 90, 120).forEach { m ->
-                    ToggleButton(checked = false, onCheckedChange = { SleepTimer.start(context, m); onClose() },
-                        colors = ToggleButtonDefaults.toggleButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
-                        Text(if (m < 60) "$m min" else if (m % 60 == 0) "${m / 60} h" else "${m / 60} h ${m % 60}")
+            Spacer(Modifier.height(Space.s))
+            var hours by remember { mutableIntStateOf(0) }
+            var minutes by remember { mutableIntStateOf(30) }
+            Row(Modifier.fillMaxWidth().height(WheelItemHeight * 3), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.fillMaxSize()) {
+                    Surface(
+                        Modifier.fillMaxWidth().height(WheelItemHeight).align(Alignment.Center),
+                        shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    ) {}
+                    Row(Modifier.fillMaxSize()) {
+                        WheelColumn(24, hours, "hours", { hours = it }, Modifier.weight(1f))
+                        WheelColumn(60, minutes, "min", { minutes = it }, Modifier.weight(1f))
                     }
                 }
-                ToggleButton(checked = st == SleepTimer.State.EndOfTrack, onCheckedChange = { SleepTimer.startEndOfTrack(context); onClose() },
-                    colors = ToggleButtonDefaults.toggleButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
-                    Text("End of track")
-                }
+            }
+            Spacer(Modifier.height(Space.s))
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+                FilledTonalButton(
+                    onClick = { SleepTimer.startEndOfTrack(context); dismiss() },
+                    modifier = Modifier.weight(1f).height(52.dp),
+                ) { Text(if (st == SleepTimer.State.EndOfTrack) "End of track ✓" else "End of track") }
+                Button(
+                    onClick = { SleepTimer.start(context, hours * 60 + minutes); dismiss() },
+                    enabled = hours * 60 + minutes > 0,
+                    modifier = Modifier.weight(1f).height(52.dp),
+                ) { Text("Start") }
             }
             if (canOff) Row(Modifier.padding(top = Space.m), verticalAlignment = Alignment.CenterVertically) {
                 Text("Turn off the $noun", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
@@ -132,11 +164,83 @@ private fun SleepTimerSheet(onClose: () -> Unit) {
             }
             if (st != SleepTimer.State.Off) Row(Modifier.padding(top = Space.m), horizontalArrangement = Arrangement.spacedBy(Space.s)) {
                 if (st is SleepTimer.State.Counting) OutlinedButton(onClick = { SleepTimer.extend(context, 15) }, modifier = Modifier.weight(1f)) { Text("+15 min") }
-                OutlinedButton(onClick = { SleepTimer.cancel(); onClose() }, modifier = Modifier.weight(1f)) {
+                OutlinedButton(onClick = { SleepTimer.cancel(); dismiss() }, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Outlined.Close, null, Modifier.size(18.dp)); Spacer(Modifier.width(Space.s)); Text("Turn off timer")
                 }
             }
-            Spacer(Modifier.height(Space.l))
+            Spacer(Modifier.height(Space.m))
         }
+    }
+}
+
+private val WheelItemHeight = 44.dp
+
+/**
+ * One iOS-style wheel: [count] numbers, the centred one is picked and [label] stands beside the pick. Each number's
+ * size and fade follow its distance from the centre as the wheel turns (in its graphics layer, nothing recomposes per
+ * frame), and a fling settles onto a number on the expressive spatial spring.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun WheelColumn(count: Int, selected: Int, label: String, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+    val state = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = selected)
+    val motion = MaterialTheme.motionScheme
+    val decay = androidx.compose.animation.rememberSplineBasedDecay<Float>()
+    val fling = remember(state, decay, motion) {
+        androidx.compose.foundation.gestures.snapping.snapFlingBehavior(
+            androidx.compose.foundation.gestures.snapping.SnapLayoutInfoProvider(state, androidx.compose.foundation.gestures.snapping.SnapPosition.Center),
+            decay, motion.defaultSpatialSpec(),
+        )
+    }
+    val centered by remember {
+        androidx.compose.runtime.derivedStateOf {
+            val info = state.layoutInfo
+            val mid = (info.viewportStartOffset + info.viewportEndOffset) / 2
+            info.visibleItemsInfo.minByOrNull { kotlin.math.abs(it.offset + it.size / 2 - mid) }?.index ?: selected
+        }
+    }
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val select by androidx.compose.runtime.rememberUpdatedState(onSelect)
+    LaunchedEffect(state) {
+        var last = centered
+        androidx.compose.runtime.snapshotFlow { centered }.collect {
+            if (it != last && state.isScrollInProgress) haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick)
+            last = it
+        }
+    }
+    LaunchedEffect(state) {
+        androidx.compose.runtime.snapshotFlow { state.isScrollInProgress to centered }.collect { (moving, i) -> if (!moving) select(i) }
+    }
+    Box(modifier) {
+        androidx.compose.foundation.lazy.LazyColumn(
+            Modifier.fillMaxSize(), state = state, flingBehavior = fling,
+            contentPadding = PaddingValues(vertical = WheelItemHeight),
+        ) {
+            items(count) { i ->
+                Box(Modifier.fillMaxWidth().height(WheelItemHeight), contentAlignment = Alignment.Center) {
+                    Text("$i", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.graphicsLayer {
+                            // 0 at the centre, 1 a whole row away or further.
+                            val info = state.layoutInfo
+                            val mid = (info.viewportStartOffset + info.viewportEndOffset) / 2f
+                            var d = 1f
+                            val items = info.visibleItemsInfo
+                            for (k in items.indices) {
+                                val it = items[k]
+                                if (it.index == i) { d = (kotlin.math.abs(it.offset + it.size / 2f - mid) / it.size).coerceAtMost(1f); break }
+                            }
+                            val s = 1.25f - 0.35f * d
+                            scaleX = s; scaleY = s
+                            alpha = 1f - 0.6f * d
+                        })
+                }
+            }
+        }
+        // Beside the centre row, clear of the widest number at its picked size.
+        Text(label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.align(Alignment.Center).layout { m, c ->
+                val p = m.measure(c.copy(minWidth = 0))
+                layout(p.width, p.height) { p.place(p.width / 2 + 26.dp.roundToPx(), 0) }
+            })
     }
 }

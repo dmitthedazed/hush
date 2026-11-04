@@ -8,11 +8,15 @@ cd hush
 ./gradlew testDebugUnitTest assembleDebug
 ```
 
-Needs JDK 21 and the Android SDK. Modules: `app` (phone), `wear`, `tv`, and `core` with the protocol and shared code.
+Needs JDK 21 and the Android SDK. Apps: `app` (phone), `wear`, `tv`. Brands live in `devices/<brand>` on the contract in `devices/api`; protocols in `protocol/<name>`.
+
+## Adding headphones
+
+A new brand, model or feature: [docs/EXTENDING.md](docs/EXTENDING.md). Every brand is checked by `DeviceModulesContractTest`.
 
 ## Before you change the protocol
 
-[docs/NOTES.md](docs/NOTES.md) describes the MDR protocol, Sony's services and where each piece lives in the decompiled Sound Connect. Read the part you're touching first. Frame encoding is covered by tests in `core/src/test`, keep them passing and add one for anything new.
+[docs/NOTES.md](docs/NOTES.md) describes the MDR protocol, Sony's services and where each piece lives in the decompiled Sound Connect. Read the part you're touching first. Frame encoding is covered by tests in `devices/sony-core/src/test`, keep them passing and add one for anything new.
 
 ## Rules of thumb
 

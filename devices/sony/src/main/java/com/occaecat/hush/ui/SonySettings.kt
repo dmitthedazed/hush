@@ -200,14 +200,14 @@ private fun wearing(state: HeadphonesState, vm: HeadphonesController): SettingsG
         else listOfNotNull(
             r?.personalMeasured?.let { if (it) "Fitted to you" else "Fit not measured" },
             r?.pressureTenthsAtm?.let { "%.1f atm".format(it / 10f) },
-        ).joinToString(" · ").ifEmpty { "Tune noise cancelling to your fit and air pressure" },
+        ).joinToString(" · ").ifEmpty { null },
         enabled = state.phase == Phase.CONNECTED,
         busy = running,
         button = if (running) "Cancel" else "Optimize",
     ) { if (running) vm.cancelOptimizer() else vm.startOptimizer() }
     val pause = state.pauseWhenRemoved?.let { on ->
         Setting.Toggle(Icons.Outlined.PauseCircleOutline, "Pause when taken off",
-            if (state.pauseWhenRemovedAvailable) "Resume when you put them back on" else "Not available right now",
+            if (state.pauseWhenRemovedAvailable) null else "Not available right now",
             on, enabled = state.pauseWhenRemovedAvailable, onChange = vm::setPauseWhenRemoved)
     }
     val rows = listOfNotNull(optimizer, pause)
@@ -219,7 +219,7 @@ private fun conversation(state: HeadphonesState, vm: HeadphonesController): Sett
     val d = state.speakToChatDetail
     val rows = buildList {
         add(Setting.Toggle(Icons.Outlined.ChatBubbleOutline, "Speak-to-Chat",
-            "Pause music and let sound in when you start talking", stc, onChange = vm::setSpeakToChat))
+            null, stc, onChange = vm::setSpeakToChat))
         if (stc && d != null) {
             add(Setting.Choice(Icons.Outlined.SignalCellularAlt, "Voice detection sensitivity", Labels.stcSensitivity.toList(), d.sensitivity) {
                 vm.setSpeakToChatDetail(d.copy(sensitivity = it))

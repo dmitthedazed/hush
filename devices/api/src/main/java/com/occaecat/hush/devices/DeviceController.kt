@@ -92,6 +92,9 @@ interface DeviceController {
     /** Try to connect again (a widget tapped while disconnected). */
     fun reconnect() {}
 
+    /** Drop the connection (the watch's Disconnect); a device without one ignores it. */
+    fun disconnect() {}
+
     /** A picture of one earbud or the case, shown by its battery gauge; null = the part's letter. */
     @androidx.compose.runtime.Composable
     fun partImage(part: BatteryPart): androidx.compose.ui.graphics.painter.Painter? = null

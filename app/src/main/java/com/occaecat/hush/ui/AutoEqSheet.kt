@@ -164,7 +164,7 @@ private fun SheetTitle(title: String, subtitle: String, leading: (@Composable ()
         leading?.invoke()
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (subtitle.isNotEmpty()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -178,7 +178,7 @@ private fun SearchPage(
     onPick: (AutoEq.Entry) -> Unit,
 ) {
     Column {
-        SheetTitle("AutoEq", "Corrections from headphone measurements, fitted to your equalizer")
+        SheetTitle("AutoEq", "")
         Spacer(Modifier.height(Space.m))
         OutlinedTextField(
             value = query,
@@ -215,7 +215,7 @@ private fun SearchPage(
                             itemsIndexed(results, key = { _, e -> e.path }) { i, e ->
                                 SegmentedListItem(
                                     onClick = { onPick(e) },
-                                    shapes = ListItemDefaults.segmentedShapes(index = i, count = results.size),
+                                    shapes = segShapes(index = i, count = results.size),
                                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                                     leadingContent = { LeadIcon(Icons.Outlined.Headphones) },
                                     supportingContent = { Text(e.detail) },

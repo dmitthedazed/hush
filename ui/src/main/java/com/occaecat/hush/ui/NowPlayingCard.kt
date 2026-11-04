@@ -113,7 +113,7 @@ fun NowPlayingCard(
     Surface(modifier, shape = MaterialTheme.shapes.extraLarge, color = colors.surfaceContainerHigh) {
         Box {
             // A soft wash of the artwork's colours behind everything.
-            Crossfade(m?.art, label = "wash", modifier = Modifier.matchParentSize()) { a ->
+            Crossfade(m?.art, label = "wash", animationSpec = MaterialTheme.motionScheme.slowEffectsSpec(), modifier = Modifier.matchParentSize()) { a ->
                 if (a != null) Box(Modifier.fillMaxSize()) {
                     Image(a.asImageBitmap(), null, Modifier.matchParentSize().blur(48.dp), contentScale = ContentScale.Crop, alpha = 0.55f)
                     Box(Modifier.matchParentSize().background(colors.surfaceContainerHigh.copy(alpha = 0.72f)))
@@ -185,7 +185,7 @@ private fun Artwork(art: Bitmap?, appIcon: Bitmap?, access: Boolean, askAccess: 
                 .then(if (!access) Modifier.clickable(onClickLabel = "Show artwork", onClick = askAccess) else Modifier),
             contentAlignment = Alignment.Center,
         ) {
-            Crossfade(art, label = "art") { a ->
+            Crossfade(art, label = "art", animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec()) { a ->
                 if (a != null) Image(a.asImageBitmap(), "Artwork", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Icon(if (access) Icons.Outlined.MusicNote else Icons.Outlined.AddPhotoAlternate,

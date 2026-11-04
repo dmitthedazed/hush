@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 
 package com.occaecat.hush.ui
 
@@ -16,6 +16,12 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.material3.MotionScheme
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -160,9 +166,27 @@ fun FullScreenPage(
         }
         return
     }
-    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Surface(Modifier.fillMaxSize().predictiveBack(onBack = onClose), color = MaterialTheme.colorScheme.surface) {
-            PageFrame(title, onClose, back = false, bottomBar, content)
+    // Over the app in a window of its own: the window's stock zoom and dim are off, and the page itself rises in on
+    // springs and sinks away before [onClose] (the predictive back gesture carries it out on its own).
+    val shown = remember { MutableTransitionState(false).apply { targetState = true } }
+    val dismiss = { shown.targetState = false }
+    if (shown.isIdle && !shown.currentState && !shown.targetState) LaunchedEffect(Unit) { onClose() }
+    Dialog(onDismissRequest = dismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        val window = (androidx.compose.ui.platform.LocalView.current.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window
+        androidx.compose.runtime.SideEffect {
+            window?.setWindowAnimations(0)
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        }
+        val page = MotionScheme.standard()
+        val motion = MaterialTheme.motionScheme
+        AnimatedVisibility(
+            shown,
+            enter = slideInVertically(page.defaultSpatialSpec()) { it / 6 } + fadeIn(motion.defaultEffectsSpec()),
+            exit = slideOutVertically(page.fastSpatialSpec()) { it / 6 } + fadeOut(motion.fastEffectsSpec()),
+        ) {
+            Surface(Modifier.fillMaxSize().predictiveBack(onBack = onClose), color = MaterialTheme.colorScheme.surface) {
+                PageFrame(title, dismiss, back = false, bottomBar, content)
+            }
         }
     }
 }

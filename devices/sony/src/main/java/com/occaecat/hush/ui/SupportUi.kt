@@ -126,8 +126,6 @@ fun HelpPage(state: HeadphonesState, onGuide: () -> Unit, onTour: () -> Unit, on
                 }
             }
         }
-        Text("Articles open in the browser: Sony's site only serves them there.", style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Space.s, vertical = Space.m))
     }
 }
 

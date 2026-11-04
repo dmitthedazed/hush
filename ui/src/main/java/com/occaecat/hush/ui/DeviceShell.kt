@@ -130,8 +130,9 @@ fun DeviceShell(
         val motion = MaterialTheme.motionScheme
         AnimatedContent(
             targetState = tab,
+            // Fade through (M3 for navigation-bar destinations): out quickly, in growing from 92%.
             transitionSpec = {
-                (fadeIn(motion.defaultEffectsSpec()) + scaleIn(motion.defaultSpatialSpec(), initialScale = 0.96f))
+                (fadeIn(motion.defaultEffectsSpec()) + scaleIn(motion.defaultSpatialSpec(), initialScale = 0.92f))
                     .togetherWith(fadeOut(motion.fastEffectsSpec()))
             },
             // Back from Sound or Device peeks at Listen: the page shrinks with the gesture, then Listen springs in.

@@ -43,6 +43,8 @@ object Insights {
         val noun: String,
         val ratedNcPerHour: Double? = null,
         val ratedOffPerHour: Double? = null,
+        /** Who the rated drain comes from until Hush has measured its own ("Sony's rating"). */
+        val ratedBy: String = "The maker's rating",
         /** Level at the top volume step and the span of the whole scale, in dB(A). */
         val topDb: Double = 100.0,
         val spanDb: Double = 45.0,

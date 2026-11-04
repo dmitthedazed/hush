@@ -113,7 +113,7 @@ private fun DeviceGroup(title: String, devices: List<PairedDevice>, lastUsed: St
             devices.forEachIndexed { i, d ->
                 SegmentedListItem(
                     onClick = { onPick(d.address) },
-                    shapes = ListItemDefaults.segmentedShapes(index = i, count = devices.size),
+                    shapes = segShapes(index = i, count = devices.size),
                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                     leadingContent = {
                         if (d.name.contains("1000XM4")) ProductDisk(R.drawable.xm4_side, size = 48.dp)

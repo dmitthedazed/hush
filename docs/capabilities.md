@@ -1,8 +1,10 @@
 # Capabilities
 
 What Hush can do, which devices do it themselves, and what the phone does when they can't. The shared UI only ever
-asks a `DeviceController` for capabilities (`devices/api`); it never checks a brand or a protocol. A capability the
-phone provides instead of the device is marked `Source.PHONE` and the UI says so ("On this phone").
+asks a `DeviceController` for capabilities (`devices/api`); it never checks a brand or a protocol. Each capability has
+a source: `DEVICE` (the headphones do it), `HYBRID` (the phone decides, the headphones do the work) or `PHONE` (the
+phone stands in for missing hardware). The UI marks the last two and lists all of them on the Features page. How to
+add a brand, a model or a feature: [EXTENDING.md](EXTENDING.md).
 
 Devices: **XM4** = Sony WH-1000XM4 (MDR v1 over RFCOMM), **EarPods** = Apple EarPods USB-C (plain USB Audio, no
 control channel), **TWS** = planned earbuds (Sony WF over MDR v2, generic earbuds over HFP/A2DP only), **Jabra** =
@@ -78,12 +80,15 @@ external GNP module over RFCOMM (not ported yet; from its public feature set).
 ## Layers
 
 ```
-protocol/mdr      pure Kotlin (JVM): MDR frames, v1/v2 commands, parsers, model. No Android, no UI. JVM tests.
-core              Android: MDR transport (RFCOMM socket, A2DP watcher) and the Sony session (HeadphonesController).
-devices/api       the contract: DeviceController + capabilities (Source, Capabilities), phone fallbacks
-                  (PhoneEqualizer, BluetoothBattery, PhoneSleepTarget), scenes, insights, AutoEq.
-devices/<brand>   one module per brand: maps its protocol onto the capabilities; device-only sections.
-app, ui           draw from capabilities only.
+protocol/mdr        pure Kotlin (JVM): MDR frames, v1/v2 commands, parsers, model. No Android, no UI. JVM tests.
+devices/sony-core   Android, no UI: MDR transport (RFCOMM socket, A2DP watcher) and the Sony session
+                    (HeadphonesController), shared by the phone, watch and TV apps.
+link                the phone ↔ watch contract (Snapshot, Command) in no brand's terms.
+devices/api         the contract: DeviceController + capabilities (Source, Capabilities, Contract), phone fallbacks
+                    (PhoneEqualizer, BluetoothBattery, PhoneSleepTarget), scenes, insights, AutoEq.
+devices/<brand>     one module per brand: maps its protocol onto the capabilities; device-only sections.
+app, ui             draw from capabilities only; widgets, tile, alerts and the watch bridge follow any brand.
 ```
 
-A new brand (Jabra/GNP) adds `protocol/gnp` (pure, tested on the JVM) and `devices/jabra` (transport + controller).
+A new brand (Jabra/GNP) adds `protocol/gnp` (pure, tested on the JVM) and `devices/jabra` (transport + controller),
+then one line in `Brands.all`.

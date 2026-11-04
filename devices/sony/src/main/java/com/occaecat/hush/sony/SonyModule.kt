@@ -17,7 +17,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.occaecat.hush.HeadphonesController
 import com.occaecat.hush.HeadphonesState
-import com.occaecat.hush.HushTileService
 import com.occaecat.hush.Phase
 import com.occaecat.hush.devices.Candidate
 import com.occaecat.hush.devices.Device
@@ -49,6 +48,11 @@ import kotlinx.coroutines.flow.stateIn
 object SonyModule : DeviceModule {
     override val id = "sony"
     override val brand = "Sony"
+
+    override val notice = "Hush is an independent app and is not made, endorsed or supported by Sony. Sony, WH-1000XM4, " +
+        "Sound Connect and DSEE Extreme are trademarks of Sony Group Corporation; LDAC is a trademark of Sony. " +
+        "Headphone images, tutorials, help articles and firmware information are Sony's and are fetched from " +
+        "Sony's own servers, the way Sound Connect does, so the app can work with headphones you own."
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var _devices: StateFlow<List<Device>>
@@ -171,7 +175,8 @@ object SonyModule : DeviceModule {
         val vm = HeadphonesController.get(appContext)
         val addr = device.address ?: return
         val s = vm.state.value
-        if (s.address != addr || s.phase == Phase.IDLE || s.phase == Phase.FAILED) {
+        // Controls handed to another source stay there until music plays here or the user takes them back.
+        if (s.address != addr || s.phase == Phase.IDLE || s.phase == Phase.FAILED && s.elsewhere == null) {
             if (ContextCompat.checkSelfPermission(appContext, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) vm.pick(addr)
         }
     }
@@ -221,7 +226,7 @@ object SonyModule : DeviceModule {
     }
 }
 
-/** Once the Bluetooth permission is there: connect, and the one-time asks (notifications, tile, battery). */
+/** Once the Bluetooth permission is there: connect, and the one-time notifications ask. */
 @Composable
 internal fun SonyStartup(vm: HeadphonesController) {
     val context = LocalContext.current
@@ -232,27 +237,7 @@ internal fun SonyStartup(vm: HeadphonesController) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        // Offer the Hush tile for the control center once (system dialog, the user decides).
-        val prefs = context.getSharedPreferences("hush", 0)
-        if (!prefs.getBoolean("tile_offered", false)) {
-            prefs.edit().putBoolean("tile_offered", true).apply()
-            context.getSystemService(android.app.StatusBarManager::class.java)?.requestAddTileService(
-                android.content.ComponentName(context, HushTileService::class.java), "Hush",
-                android.graphics.drawable.Icon.createWithResource(context, com.occaecat.hush.ui.R.drawable.ic_stat_headphones),
-                context.mainExecutor,
-            ) {}
-        }
-        // The tile, the My Devices card and Bluetooth settings start the session from the background; Android only
-        // lets an app start its foreground service from there when it is exempt from battery optimization.
-        val power = context.getSystemService(android.os.PowerManager::class.java)
-        if (!power.isIgnoringBatteryOptimizations(context.packageName)) {
-            runCatching {
-                context.startActivity(
-                    Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
-                        .setData(android.net.Uri.parse("package:" + context.packageName))
-                )
-            }
-        }
+        // Battery optimization is asked from the Device page (SonyBackground), on the user's tap: Play policy.
     }
 }
 
@@ -268,7 +253,9 @@ private val ratedHours = mapOf(
 
 internal fun sonyInsights(model: String?): com.occaecat.hush.features.Insights.Profile {
     val (nc, off) = model?.let { m -> ratedHours.entries.firstOrNull { m.contains(it.key, ignoreCase = true) }?.value } ?: (30 to 38)
-    return com.occaecat.hush.features.Insights.Profile(key = "sony", noun = "headphones", ratedNcPerHour = 100.0 / nc, ratedOffPerHour = 100.0 / off)
+    return com.occaecat.hush.features.Insights.Profile(
+        key = "sony", noun = "headphones", ratedNcPerHour = 100.0 / nc, ratedOffPerHour = 100.0 / off, ratedBy = "Sony's rating",
+    )
 }
 
 internal val sonyInsights = sonyInsights("WH-1000XM4")

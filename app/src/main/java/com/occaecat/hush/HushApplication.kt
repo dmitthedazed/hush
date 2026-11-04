@@ -14,10 +14,17 @@ class HushApplication : Application() {
         com.occaecat.hush.scenes.SceneStore.init(this)
         com.occaecat.hush.scenes.Scenes.targets = DeviceModules.targets
         com.occaecat.hush.sound.SoundAutomation.start(this, DeviceModules.targets)
-        // Home screen widgets: a live Glance session recomposes by itself; this covers ended sessions.
+        // Home screen widgets (a live Glance session recomposes by itself; this covers ended sessions) and the tile.
         val app = this
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main).launch {
-            com.occaecat.hush.widget.widgetState(app).collect { com.occaecat.hush.widget.HushWidgets.updateAll(app) }
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
+        scope.launch {
+            com.occaecat.hush.widget.widgetState(app).collect {
+                com.occaecat.hush.widget.HushWidgets.updateAll(app)
+                HushTileService.refresh(app)
+            }
         }
+        // The watch follows the same device the widgets show.
+        com.occaecat.hush.wear.WatchBridge.start(app, scope)
+        DeviceEvents.start(app, scope)
     }
 }

@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
 package com.occaecat.hush.ui
 
@@ -47,6 +47,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
+import androidx.compose.foundation.layout.exclude
+import androidx.compose.foundation.layout.onConsumedWindowInsetsChanged
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.positionInWindow
@@ -118,8 +120,12 @@ fun TabScaffold(
     pinnedHero: (@Composable (HeroCollapse) -> Unit)? = null,
     content: LazyStaggeredGridScope.() -> Unit,
 ) {
-    val heroless = hero == null && pinnedHero == null
     val layout = LocalLayout.current
+    // A short window (a phone on its side) can't spare a pinned hero most of its height: it scrolls away instead.
+    val unpin = layout.compactHeight && pinnedHero != null
+    val hero = hero ?: if (unpin) ({ pinnedHero!!(remember { HeroCollapse() }) }) else null
+    val pinnedHero = pinnedHero.takeUnless { unpin }
+    val heroless = hero == null && pinnedHero == null
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val hinge = layout.bookHinge
     val density = LocalDensity.current
@@ -127,7 +133,11 @@ fun TabScaffold(
     // On very wide windows (desktop, maximised) the app bar lines up with the centred grid instead of the window edge.
     val maxWidth = if (hinge != null) Dp.Infinity
         else ColumnMaxWidth * layout.columns + gap * (layout.columns - 1) + Space.m * 2
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.TopCenter) {
+    var consumed by remember { mutableStateOf(WindowInsets(0)) }
+    Box(
+        Modifier.fillMaxSize().onConsumedWindowInsetsChanged { consumed = it }.background(MaterialTheme.colorScheme.surface),
+        contentAlignment = Alignment.TopCenter,
+    ) {
     Scaffold(
         // Without an app bar the collapse behaviour has no height limit and would swallow every scroll.
         modifier = Modifier.widthIn(max = maxWidth)
@@ -186,7 +196,8 @@ fun TabScaffold(
                         hero != null -> 0.dp
                         else -> pad.calculateTopPadding() + Space.s
                     },
-                    bottom = Space.xl + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+                    // Only what a navigation bar above us hasn't already taken.
+                    bottom = Space.xl + WindowInsets.navigationBars.exclude(consumed).asPaddingValues().calculateBottomPadding(),
                 ),
                 horizontalArrangement = Arrangement.spacedBy(gap),
                 verticalItemSpacing = Space.m,

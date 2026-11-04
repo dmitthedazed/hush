@@ -135,10 +135,6 @@ class SonyController(
             volume = s.volume,
             volumeSteps = s.volumeSteps,
             source = if (src == null || src.name == me) Icons.Outlined.Smartphone to "This phone" else Icons.Outlined.Laptop to src.name,
-            cardFacts = listOfNotNull(
-                s.codec?.label?.takeIf { connected && it != "—" },
-                s.firmware?.let { "v$it" },
-            ),
             details = sonyDetails(s),
             disconnectedHelp = s.error?.takeIf { s.protocolV2 }
                 ?: ("Make sure ${s.deviceName ?: "the headphones"} are on and connected in Bluetooth settings. " +
@@ -243,6 +239,7 @@ class SonyController(
     }
 
     override fun reconnect() { vm.connectSaved() }
+    override fun disconnect() { vm.disconnect() }
 
     override fun renderBitmap(context: Context): android.graphics.Bitmap? = com.occaecat.hush.ui.renderBitmap(context, hs.value)
 
@@ -428,6 +425,8 @@ private fun SonyGate(vm: HeadphonesController, content: @Composable () -> Unit) 
 
 /** The headset's own volume, its playback control and power. */
 fun sonySleepTarget(vm: HeadphonesController) = object : com.occaecat.hush.features.SleepTarget {
+    // The phone keeps time and fades; the headset's own volume and power-off do the work.
+    override val providedBy get() = com.occaecat.hush.devices.Source.HYBRID
     override val volume get() = vm.state.value.volume
     override fun setVolume(v: Int) = vm.setVolume(v)
     override fun pause() { if (vm.state.value.playing == true) vm.playPause() }

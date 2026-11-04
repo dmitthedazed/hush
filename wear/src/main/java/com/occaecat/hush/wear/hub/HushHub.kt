@@ -21,9 +21,10 @@ import com.occaecat.hush.PairedDevice
 import com.occaecat.hush.Phase
 import com.occaecat.hush.link.Command
 import com.occaecat.hush.link.HushLink
+import com.occaecat.hush.link.NoiseMode
 import com.occaecat.hush.link.Snapshot
 import com.occaecat.hush.link.apply
-import com.occaecat.hush.mdr.AmbientMode
+import com.occaecat.hush.link.toSnapshot
 import com.occaecat.hush.wear.complication.BatteryComplicationService
 import com.occaecat.hush.wear.complication.NoiseComplicationService
 import com.occaecat.hush.wear.tile.HushTileService
@@ -111,7 +112,7 @@ class HushHub private constructor(private val app: Application) {
             }
         }
         val snapshot = when (route) {
-            Route.WATCH -> Snapshot.from(l)
+            Route.WATCH -> l.toSnapshot()
             // The last synced item is stale once the phone is gone; keep the name, drop the live bits.
             Route.PHONE -> if (reachable) phone ?: Snapshot() else Snapshot(name = phone?.name, hasAddress = phone?.hasAddress == true)
         }
@@ -267,17 +268,12 @@ class HushHub private constructor(private val app: Application) {
 /** The phone's answer before it arrives, so taps on a relayed route feel local. */
 private fun Snapshot.optimistic(c: Command): Snapshot = when (c) {
     is Command.SetMode -> copy(mode = c.mode)
-    is Command.SetAmbientLevel -> copy(mode = AmbientMode.AMBIENT, ambientLevel = c.level)
+    is Command.SetAmbientLevel -> copy(mode = NoiseMode.AMBIENT, ambientLevel = c.level)
     is Command.SetVoiceFocus -> copy(voiceFocus = c.on)
-    is Command.SetSpeakToChat -> copy(speakToChat = c.on)
-    is Command.SetDsee -> copy(dseeAuto = c.auto)
+    is Command.SetToggle -> copy(toggles = toggles.map { if (it.id == c.id) it.copy(on = c.on) else it })
     is Command.SetEqPreset -> copy(eqPreset = c.id)
     Command.CycleNoise -> copy(
-        mode = when (mode) {
-            AmbientMode.NOISE_CANCELLING -> AmbientMode.AMBIENT
-            AmbientMode.AMBIENT -> AmbientMode.OFF
-            else -> AmbientMode.NOISE_CANCELLING
-        }
+        mode = modes.getOrNull((modes.indexOf(mode) + 1) % modes.size.coerceAtLeast(1)) ?: mode
     )
     Command.Connect -> if (connected) this else copy(phase = Phase.CONNECTING)
     Command.Disconnect -> copy(phase = Phase.IDLE)

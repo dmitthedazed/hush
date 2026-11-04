@@ -26,6 +26,9 @@ interface DeviceModule {
     val id: String
     val brand: String
 
+    /** Trademarks and where the module's images and data come from, for About; null when there is nothing to say. */
+    val notice: String? get() = null
+
     /** Once, from `Application.onCreate`: start watching for devices, restore settings. */
     fun init(context: Context) {}
 
@@ -111,6 +114,9 @@ interface DeviceHost {
     /** The add-device screen. */
     fun add()
     fun remove(device: Device)
+    /** [device]'s picture in lists (the device switcher): how it connects, unless the shell has the model's render. */
+    @androidx.compose.runtime.Composable
+    fun Thumb(device: Device) = com.occaecat.hush.ui.LeadIcon(device.transport.icon)
 }
 
 val LocalDeviceHost = compositionLocalOf<DeviceHost?> { null }

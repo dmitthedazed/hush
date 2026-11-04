@@ -169,7 +169,7 @@ private fun BatteryPage(profile: Insights.Profile, live: Insights.Sample, onClos
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
-                    if (d.measured) "Measured over ${hours(d.hoursMeasured)} of use" else "Sony's rating until Hush has measured 2 hours (${hours(d.hoursMeasured)} so far)",
+                    if (d.measured) "Measured over ${hours(d.hoursMeasured)} of use" else "${profile.ratedBy} until Hush has measured 2 hours (${hours(d.hoursMeasured)} so far)",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -331,7 +331,7 @@ private fun HearingPage(currentKey: String, onClose: () -> Unit) {
 private fun DeviceShareRow(index: Int, count: Int, color: Color, title: String, value: String) {
     SegmentedListItem(
         onClick = {}, enabled = false,
-        shapes = ListItemDefaults.segmentedShapes(index, count),
+        shapes = segShapes(index, count),
         colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             disabledContentColor = MaterialTheme.colorScheme.onSurface,

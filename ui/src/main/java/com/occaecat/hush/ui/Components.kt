@@ -147,6 +147,16 @@ fun SegmentedGroup(modifier: Modifier = Modifier, content: @Composable ColumnSco
     Column(modifier, verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap), content = content)
 }
 
+/** [ListItemDefaults.segmentedShapes], except a lone row is rounded all round instead of ending in the small inner corners. */
+@Composable
+fun segShapes(index: Int, count: Int): androidx.compose.material3.ListItemShapes {
+    val s = ListItemDefaults.segmentedShapes(index = index, count = count)
+    if (count != 1) return s
+    val top = ListItemDefaults.segmentedShapes(index = 0, count = 2).shape
+    val round = (top as? androidx.compose.foundation.shape.CornerBasedShape)?.let { it.copy(bottomStart = it.topStart, bottomEnd = it.topEnd) } ?: top
+    return ListItemDefaults.shapes(shape = round, selectedShape = round, pressedShape = round)
+}
+
 @Composable
 private fun segmentColors() = ListItemDefaults.colors(
     containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -202,14 +212,17 @@ fun SwitchRow(
         interactionSource = press,
         modifier = Modifier.squishy(press, 0.97f),
         enabled = enabled,
-        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
+        // A switched-on row keeps its segment's corners too; only the switch shows the state.
+        shapes = segShapes(index = index, count = count).let { it.copy(selectedShape = it.shape) },
         colors = segmentColors(),
         leadingContent = { LeadIcon(icon, enabled) },
         supportingContent = supporting?.let { { Text(it) } },
         trailingContent = {
+            // A gap the list item doesn't keep by itself: at large font scales long supporting text ran into it.
             Switch(
                 checked = checked,
                 onCheckedChange = null,
+                modifier = Modifier.padding(start = Space.s),
                 enabled = enabled,
                 thumbContent = if (checked) {
                     { Icon(Icons.Filled.Check, null, Modifier.size(SwitchDefaults.IconSize)) }
@@ -240,7 +253,7 @@ fun ValueRow(
         interactionSource = press,
         modifier = modifier.squishy(press, 0.97f),
         enabled = enabled,
-        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
+        shapes = segShapes(index = index, count = count),
         colors = segmentColors(),
         leadingContent = leading ?: { LeadIcon(icon, enabled) },
         supportingContent = value?.let { { Text(it, color = MaterialTheme.colorScheme.primary) } },
@@ -252,11 +265,11 @@ fun ValueRow(
 }
 
 @Composable
-fun InfoRow(index: Int, count: Int, icon: ImageVector, title: String, value: String) {
+fun InfoRow(index: Int, count: Int, icon: ImageVector, title: String, value: String, dimmed: Boolean = false) {
     SegmentedListItem(
         onClick = {},
         enabled = false,
-        shapes = ListItemDefaults.segmentedShapes(index = index, count = count),
+        shapes = segShapes(index = index, count = count),
         colors = ListItemDefaults.colors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
             // A read-only row is still part of the group; without this it renders with no container at all.
@@ -265,7 +278,7 @@ fun InfoRow(index: Int, count: Int, icon: ImageVector, title: String, value: Str
             disabledLeadingContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
             disabledSupportingContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ),
-        leadingContent = { LeadIcon(icon) },
+        leadingContent = { LeadIcon(icon, enabled = !dimmed) },
         supportingContent = { Text(value) },
         content = { Text(title) },
     )
@@ -290,7 +303,7 @@ fun ChoiceSheet(choice: Choice, onDismiss: () -> Unit) {
                     SegmentedListItem(
                         selected = selected,
                         onClick = { choice.onPick(id); onDismiss() },
-                        shapes = ListItemDefaults.segmentedShapes(index = i, count = choice.options.size),
+                        shapes = segShapes(index = i, count = choice.options.size),
                         colors = ListItemDefaults.colors(
                             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                             selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,

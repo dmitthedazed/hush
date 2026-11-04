@@ -20,6 +20,7 @@ object EqLibrary {
     private val _items = MutableStateFlow<List<Curve>>(emptyList())
     val items: StateFlow<List<Curve>> = _items
     private var file: File? = null
+    private var writer: com.occaecat.hush.devices.DiskWriter? = null
 
     /** Called before a curve is deleted, so automation that points at it can let go. */
     var onDelete: ((String) -> Unit)? = null
@@ -28,6 +29,7 @@ object EqLibrary {
         if (file != null) return
         val f = File(context.applicationContext.filesDir, "eq-library.json")
         file = f
+        writer = com.occaecat.hush.devices.DiskWriter(f)
         if (f.exists()) runCatching { _items.value = decode(JSONObject(f.readText())) }
     }
 
@@ -48,7 +50,7 @@ object EqLibrary {
 
     private fun update(change: (List<Curve>) -> List<Curve>) {
         _items.update(change)
-        file?.let { f -> runCatching { f.writeText(encode(_items.value).toString()) } }
+        writer?.write(encode(_items.value).toString())
     }
 
     // ---- share codes ----

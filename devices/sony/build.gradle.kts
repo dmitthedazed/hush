@@ -24,8 +24,7 @@ android {
 
 dependencies {
     implementation(project(":devices:api"))
-    implementation(project(":core"))
-    implementation(libs.play.services.wearable)
+    implementation(project(":devices:sony-core"))
     implementation(libs.play.services.location)
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.androidx.core.ktx)
