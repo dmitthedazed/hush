@@ -38,6 +38,26 @@ Hush instances (phone, TV, watch, later a computer) can cooperate to hide both l
 - Only headphones with multipoint can switch; wired and single-point ones can still be controlled remotely.
 - If the owner is asleep or gone, control stops until another node takes the channel (on request).
 
+## Activity
+
+- **Activity tab:** listening statistics per headphone, a log of all time, the places where listening happened, and
+  use of Ambient Sound Control in scenes. Ranges: day / week / month / year / all time.
+- **Switch for the whole feature.** Offline first: nothing leaves the phone, and any connection to an online service
+  needs explicit consent.
+- **Badges and achievements** in the style of Sound Connect: nice 3D badges with different milestones.
+- **Import activity from a Sony account** (with consent).
+
+## Sony
+
+- **360 Reality Audio:** try to pull the ear data from Sony and carry the personalisation over; if it turns out to be
+  too much trouble, drop it.
+- **Authenticity check over Bluetooth** for Sony headphones (the EarPods already have one over USB).
+- **Find tab:** a link to Google Find Hub for Sony headphones.
+
+## App
+
+- **"Close the app completely" button** that releases the control channel, so another controlling app can take it.
+
 ## Other
 
 - Jabra (Elite 10 / 85t) on the module system, contributed in the open pull request: reads everything the headphones
