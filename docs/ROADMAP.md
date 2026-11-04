@@ -34,7 +34,7 @@ stay closed to it. This also makes it the first real test of the plugin API afte
 4. **Channel owner and `RemoteDeviceController`:** ownership follows playback; the old owner closes its channel, the
    new one opens it, clients reconnect; the UI says which node the control goes through.
 5. **Switching policy** on top of presence (`AudioPlaybackConfiguration`, `MediaSession`) and the resume window.
-6. **Desktop client** (Linux/Windows) reusing `:protocol:mdr`; the largest piece, last.
+6. **Desktop clients** (see Native desktop clients); the largest piece, last.
 
 **Limits to design around**
 
@@ -110,6 +110,26 @@ proof that the cut-out works. Brand plugins later.
 
 - **Move translations to Crowdin:** all user-visible text in string resources (per module), the source language synced
   to a Crowdin project, translations pulled back into `values-<lang>` by CI, and a short guide for translators.
+
+## Native desktop clients
+
+- **Linux:** GTK 4 + libadwaita. **Windows:** WinUI 3. Native, not a web or cross-platform shell, integrated with the
+  system: tray/notification area, notifications, media keys and the system's own Bluetooth stack (BlueZ, Windows
+  Bluetooth RFCOMM/GATT), autostart, light/dark and accent colours.
+- **Shared brains, native faces:** the protocol layers (`protocol/mdr`, later `protocol/gnp`) are plain Kotlin. How a
+  desktop app reuses them (Kotlin/Native or JVM library behind a thin native UI, or a ported core) is an open
+  decision; the UI is written natively per platform from the same capability model (a device reports what it can do,
+  the page draws it).
+- **Device list sync (open question).** Each client sees a different set of Bluetooth devices, but the headphones'
+  identity is the same everywhere. Needs a decision on:
+  - *what* is shared: the list of registered devices (key, name, model, brand) and per-device Hush data (EQ library,
+    scenes, names), versus what stays local (pairing, transport, which units are connected right now);
+  - *how*: through the Hush network plugin (peer to peer, offline first, end to end encrypted on the shared key), or
+    through a file or folder the user already syncs; no Hush server;
+  - *conflicts*: merge by device key with last-writer-wins per field and tombstones for removed devices, so one
+    removal doesn't resurrect from a stale client;
+  - *matching*: the same headphones are identified by model plus serial where the device reports it, otherwise by the
+    user's confirmation, since Bluetooth addresses are the same but a host may hold a different pairing.
 
 ## Other
 
