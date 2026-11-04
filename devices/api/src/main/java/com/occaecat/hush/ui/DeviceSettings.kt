@@ -237,6 +237,7 @@ fun BatteryStatus(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val picture = image(b.part)
                 if (picture != null) androidx.compose.foundation.Image(picture, b.part.label, Modifier.size(24.dp))
+                else if (b.part.glyph != null) Icon(b.part.glyph!!, b.part.label, Modifier.size(24.dp), tint = colors.onSurfaceVariant)
                 else Text(b.part.label.take(1), style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant)
                 Spacer(Modifier.width(Space.xs))
                 if (b.charging) Icon(Icons.Filled.Bolt, "charging", Modifier.size(16.dp), tint = colors.primary)
