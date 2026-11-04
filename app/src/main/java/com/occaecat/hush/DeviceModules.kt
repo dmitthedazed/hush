@@ -117,6 +117,11 @@ object DeviceModules {
             ?: devices.firstOrNull { it.active }
             ?: devices.firstOrNull()
 
+    internal fun preferred(devices: List<Device>, key: String?): Device? =
+        devices.firstOrNull { it.active && it.transport != Transport.BLUETOOTH }
+            ?: devices.firstOrNull { it.key == key }
+            ?: pick(devices)
+
     /**
      * Connected devices that are ready to take settings (noise control reported, if they have one), for scenes and
      * automation.
@@ -150,10 +155,7 @@ object DeviceModules {
 
     /** The device widgets show. */
     val current: StateFlow<Device?> by lazy {
-        combine(devices, selectedKey) { list, key ->
-            list.firstOrNull { it.active && it.transport != Transport.BLUETOOTH }
-                ?: list.firstOrNull { it.key == key }
-                ?: pick(list)
-        }.distinctUntilChanged().stateIn(scope, SharingStarted.Eagerly, pick(devices.value))
+        combine(devices, selectedKey, ::preferred).distinctUntilChanged()
+            .stateIn(scope, SharingStarted.Eagerly, preferred(devices.value, selectedKey.value))
     }
 }

@@ -3,6 +3,8 @@ package com.occaecat.hush.jabra
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
+import android.util.Xml
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,14 +31,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
-import org.w3c.dom.Element
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URI
-import javax.xml.XMLConstants
-import javax.xml.parsers.DocumentBuilderFactory
+import org.xmlpull.v1.XmlPullParser
 
 /** Version lookup only. Firmware images and GNP transfer commands are deliberately absent. */
 internal class JabraFirmwareCheck(
@@ -82,7 +82,7 @@ internal class JabraFirmwareCheck(
             title = when {
                 current == null -> "Connect the earbuds to check"
                 available -> "Firmware ${checked!!.latest} is available"
-                failed != null -> "Couldn't reach Jabra"
+                failed != null -> "Couldn't check Jabra firmware"
                 running && checked == null -> "Checking with Jabra…"
                 checked != null -> "Firmware is up to date"
                 else -> "Firmware version $current"
@@ -117,6 +117,7 @@ internal class JabraFirmwareCheck(
             result.value = Result(model.productId, installed, latest)
         } catch (e: CancellationException) { throw e
         } catch (e: Exception) {
+            Log.w("JabraFirmware", "Firmware manifest check failed for product ${model.productId}", e)
             error.value = e.message ?: "Firmware check failed"
         } finally { busy.value = false }
     }
@@ -142,25 +143,49 @@ internal class JabraFirmwareCheck(
                 output.toByteArray()
             }
             if (bytes.size > 1_048_576) throw IOException("Jabra firmware manifest is too large")
-            val factory = DocumentBuilderFactory.newInstance().apply {
-                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-                setFeature("http://xml.org/sax/features/external-general-entities", false)
-                setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-                setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
-                isXIncludeAware = false
-                isExpandEntityReferences = false
-            }
-            val root = factory.newDocumentBuilder().parse(ByteArrayInputStream(bytes)).documentElement as Element
-            if (root.tagName != "firmwareVersionInfo") throw IOException("Unexpected Jabra manifest")
-            fun field(name: String): String = root.getElementsByTagName(name).item(0)?.textContent?.trim().orEmpty()
-            if (field("productName") != model.label) throw IOException("Firmware manifest is for another model")
-            return field("version").also { version ->
-                if (!version.matches(Regex("[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}")))
-                    throw IOException("Invalid Jabra firmware version")
-            }
+            return parseManifest(bytes, model)
         } finally { connection.disconnect() }
     }
 
+}
+
+/** Android's XML parser does not support the desktop DOM security features. Read only direct manifest fields. */
+private fun parseManifest(bytes: ByteArray, model: JabraModel): String {
+    val parser = Xml.newPullParser().apply {
+        setFeature(XmlPullParser.FEATURE_PROCESS_DOCDECL, false)
+        setInput(ByteArrayInputStream(bytes), null)
+    }
+    var depth = 0
+    var field: String? = null
+    val value = StringBuilder()
+    var product: String? = null
+    var version: String? = null
+    while (true) {
+        when (parser.nextToken()) {
+            XmlPullParser.DOCDECL, XmlPullParser.ENTITY_REF -> throw IOException("Unsafe Jabra manifest")
+            XmlPullParser.START_TAG -> {
+                depth++
+                if (depth == 1 && parser.name != "firmwareVersionInfo") throw IOException("Unexpected Jabra manifest")
+                if (depth == 2) {
+                    field = parser.name.takeIf { it == "productName" || it == "version" }
+                    value.clear()
+                }
+            }
+            XmlPullParser.TEXT, XmlPullParser.CDSECT -> if (depth == 2 && field != null) value.append(parser.text)
+            XmlPullParser.END_TAG -> {
+                if (depth == 2) when (field) {
+                    "productName" -> product = value.toString().trim()
+                    "version" -> version = value.toString().trim()
+                }
+                if (depth == 2) field = null
+                depth--
+            }
+            XmlPullParser.END_DOCUMENT -> break
+        }
+    }
+    if (product != model.label) throw IOException("Firmware manifest is for another model")
+    return version?.takeIf { it.matches(Regex("[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}")) }
+        ?: throw IOException("Invalid Jabra firmware version")
 }
 
 private fun newerVersion(a: String, b: String): Boolean {
