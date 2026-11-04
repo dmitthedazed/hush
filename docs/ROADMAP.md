@@ -56,6 +56,10 @@ Hush instances (phone, TV, watch, later a computer) can cooperate to hide both l
 
 ## App
 
+- **App settings page:** Hush's own settings in one place. Appearance (theme light/dark/system, dynamic colours or
+  the fixed palette, text size, motion), language, notifications and the foreground service, units, privacy and
+  consent (the Activity switch, online services), backup and restore, and "close the app completely".
+
 - **"Close the app completely" button** that releases the control channel, so another controlling app can take it.
 
 ## Plugins
