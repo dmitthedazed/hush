@@ -58,6 +58,13 @@ Hush instances (phone, TV, watch, later a computer) can cooperate to hide both l
 
 - **"Close the app completely" button** that releases the control channel, so another controlling app can take it.
 
+## Plugins
+
+- **A plugin system** for optional integrations that don't belong in the core app.
+- **Move the Xposed hook into it** as the first plugin (ColorOS My Devices / PantaConnect integration through
+  libxposed), and **cut Xposed out of the main app**: no hook classes, no Xposed manifest entries or dependencies
+  in `:app`.
+
 ## Other
 
 - Jabra (Elite 10 / 85t) on the module system, contributed in the open pull request: reads everything the headphones
