@@ -59,6 +59,16 @@ class JabraProtocolTest {
         assertNull(JabraProtocol.battery(bytes(0x80, 90)))
     }
 
+    @Test fun elite85tMapsBothReportedBudsToSidesButElite10StaysNeutral() {
+        val record = bytes(0x80, 93, 0, 0, 2, 0x15, 0, 66, 5, 0, 90)
+        assertEquals(listOf("Right", "Case", "Left"),
+            JabraProtocol.battery(record, JabraModel.ELITE_85T)!!.components.map { it.label })
+        assertEquals(listOf("Earbud 1", "Case", "Earbud 2"),
+            JabraProtocol.battery(record, JabraModel.ELITE_10)!!.components.map { it.label })
+        assertEquals("Earbuds", JabraProtocol.battery(bytes(0x80, 93, 0, 0, 1, 0x15, 0, 66),
+            JabraModel.ELITE_85T)!!.components.first().label)
+    }
+
     @Test fun unknownPercentagesAndSecondaryChargingAreNotGuessed() {
         val battery = JabraProtocol.battery(bytes(0x81, 255, 0, 0, 2, 0x15, 0, 255, 5, 1, 70))!!
         assertEquals(70, battery.aggregate)

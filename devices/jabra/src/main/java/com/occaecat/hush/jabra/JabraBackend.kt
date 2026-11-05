@@ -246,7 +246,7 @@ class JabraBackend internal constructor(private val client: GnpClient, parent: C
     }
 
     private fun publishBattery(payload: ByteArray): Boolean {
-        val battery = JabraProtocol.battery(payload) ?: return false
+        val battery = JabraProtocol.battery(payload, model) ?: return false
         if (!stopped) mutableState.update { it.copy(batteries = battery.components) }
         return true
     }

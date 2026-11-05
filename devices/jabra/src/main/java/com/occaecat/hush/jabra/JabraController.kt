@@ -95,8 +95,12 @@ class JabraController(
                 part.level?.let { level -> BatteryLevel(level, part.charging == true,
                     when (part.id) {
                         "case" -> BatteryPart.CASE
-                        "primary" -> if (s.batteries.any { it.id == "secondary" }) BatteryPart.EARBUD_1 else BatteryPart.MAIN
-                        "secondary" -> BatteryPart.EARBUD_2
+                        "primary" -> when {
+                            s.batteries.none { it.id == "secondary" } -> BatteryPart.MAIN
+                            s.model == JabraModel.ELITE_85T -> BatteryPart.RIGHT
+                            else -> BatteryPart.EARBUD_1
+                        }
+                        "secondary" -> if (s.model == JabraModel.ELITE_85T) BatteryPart.LEFT else BatteryPart.EARBUD_2
                         else -> BatteryPart.MAIN
                     }) }
             } else emptyList(),

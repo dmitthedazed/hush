@@ -34,6 +34,12 @@ class JabraBackendTest {
         assertTrue(state.eqCaps!!.presets.isEmpty())
     }
 
+    @Test fun elite85tBatteryUsesVerifiedRightBudLink() = withBackend(
+        FakeGnp().apply { pid = bytes(0xcd, 0x24) }
+    ) { backend, _ ->
+        assertEquals(listOf("Right", "Case", "Left"), backend.state.value.batteries.map { it.label })
+    }
+
     @Test fun unsupportedIdentityNeverSendsInitializationWrites() = runBlocking {
         val fake = FakeGnp().apply { pid = bytes(1, 2) }
         val scope = CoroutineScope(currentCoroutineContext() + SupervisorJob())

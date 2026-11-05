@@ -132,7 +132,7 @@ object JabraProtocol {
         }
     }
 
-    fun battery(payload: ByteArray): Battery? {
+    fun battery(payload: ByteArray, model: JabraModel? = null): Battery? {
         if (payload.size < 2) return null
         val flags = payload[0].u()
         val hasExtra = flags and 0x80 != 0
@@ -142,14 +142,17 @@ object JabraProtocol {
         val components = mutableListOf<BatteryComponent>()
         val entries = (0 until count).map { 5 + it * 3 }
         val hasOtherEarbud = entries.any { payload[it].u() in listOf(4, 5) }
+        // Elite 85t links to the phone through the right bud. Elite 10 can link through either side;
+        // 1202 identifies local/extra units, so it needs a separate connection-side signal for L/R.
+        val elite85tSides = model == JabraModel.ELITE_85T && hasOtherEarbud
         val charging = flags and 1 != 0
-        components += BatteryComponent("primary", if (hasOtherEarbud) "Earbud 1" else "Earbuds",
+        components += BatteryComponent("primary", if (elite85tSides) "Right" else if (hasOtherEarbud) "Earbud 1" else "Earbuds",
             payload[1].u().takeIf { it <= 100 }, charging)
         entries.forEach { at ->
             val id = payload[at].u()
             val level = payload[at + 2].u().takeIf { it <= 100 }
             when (id) {
-                4, 5 -> components += BatteryComponent("secondary", "Earbud 2", level)
+                4, 5 -> components += BatteryComponent("secondary", if (elite85tSides) "Left" else "Earbud 2", level)
                 0x15 -> components += BatteryComponent("case", "Case", level)
             }
         }
