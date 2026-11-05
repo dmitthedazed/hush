@@ -166,9 +166,6 @@ object SonyModule : DeviceModule {
     override fun remembered(context: Context): List<Candidate> {
         val s = HeadphonesController.get(context).state.value
         val addr = s.address ?: return emptyList()
-        // Older multi-brand builds kept the selected brand beside the address. Do not claim another brand's unit.
-        val savedBrand = context.getSharedPreferences("hush", Context.MODE_PRIVATE).getString("brand:$addr", null)
-        if (savedBrand != null && savedBrand != id.uppercase()) return emptyList()
         val name = s.paired.firstOrNull { it.address == addr }?.name ?: s.deviceName ?: "WH-1000XM4"
         return listOf(Candidate(id, modelFor(name), name, Transport.BLUETOOTH, addr))
     }

@@ -2,7 +2,6 @@ package com.occaecat.hush.scenes
 
 import android.content.Context
 import com.occaecat.hush.devices.DeviceController
-import com.occaecat.hush.devices.DeviceRegistry
 import com.occaecat.hush.devices.EqLibrary
 import com.occaecat.hush.devices.NoiseKind
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -64,8 +63,6 @@ data class SceneConfig(
     val devices: Map<String, DeviceScenes> = emptyMap(),
     /** Hush 0.17's Sony-only settings, waiting for the first Sony headset to take them. */
     val legacySony: DeviceScenes? = null,
-    /** Older single-device settings awaiting the first registered device of their module. */
-    val legacyByModule: Map<String, DeviceScenes> = emptyMap(),
 )
 
 /**
@@ -86,10 +83,7 @@ object SceneStore {
         writer = com.occaecat.hush.devices.DiskWriter(f)
         if (f.exists()) runCatching { _config.value = decode(JSONObject(f.readText())) }
         else File(dir, "sound.json").takeIf { it.exists() }?.let { old ->
-            val prefs = context.getSharedPreferences("hush", Context.MODE_PRIVATE)
-            val address = prefs.getString("address", null)
-            val moduleHint = address?.let { prefs.getString("brand:$it", null)?.lowercase() }
-            runCatching { importLegacy(JSONObject(old.readText()), moduleHint) }
+            runCatching { importLegacy(JSONObject(old.readText())) }
         }
         // Triggers that pointed at a deleted curve fall back to "don't change the EQ".
         EqLibrary.onDelete = { id ->
@@ -100,8 +94,7 @@ object SceneStore {
                 places = places.mapValues { it.value.drop() },
                 apps = apps.map { it.copy(action = it.action.drop()) },
             )
-            update { c -> c.copy(devices = c.devices.mapValues { it.value.drop() }, legacySony = c.legacySony?.drop(),
-                legacyByModule = c.legacyByModule.mapValues { it.value.drop() }) }
+            update { c -> c.copy(devices = c.devices.mapValues { it.value.drop() }, legacySony = c.legacySony?.drop()) }
         }
     }
 
@@ -116,16 +109,13 @@ object SceneStore {
 
     /** [key]'s settings: saved ones, Hush 0.17's for the first Sony headset, or defaults from what [c] can do. */
     fun device(config: SceneConfig, key: String, c: DeviceController): DeviceScenes =
-        config.devices[key] ?: config.legacyByModule[key.substringBefore(':')]
-            ?: config.legacySony?.takeIf { key.startsWith("sony:") } ?: defaultsFor(c)
+        config.devices[key] ?: config.legacySony?.takeIf { key.startsWith("sony:") } ?: defaultsFor(c)
 
     fun updateDevice(key: String, c: DeviceController, change: (DeviceScenes) -> DeviceScenes) = update { cfg ->
         val adopted = cfg.devices[key] == null && cfg.legacySony != null && key.startsWith("sony:")
-        val moduleId = key.substringBefore(':')
         cfg.copy(
             devices = cfg.devices + (key to change(device(cfg, key, c))),
             legacySony = if (adopted) null else cfg.legacySony,
-            legacyByModule = cfg.legacyByModule - moduleId,
         )
     }
 
@@ -158,17 +148,13 @@ object SceneStore {
 
     fun importJson(o: JSONObject) = update { decode(o) }
 
-    /** Hush 0.17's `sound.json` (or a backup's "sound"), assigned by its recorded protocol namespace. */
-    fun importLegacy(o: JSONObject, moduleHint: String? = null) {
-        // That file also held the EQ library. Unversioned entries are Sony 0..20 levels; explicit
-        // layouts from other devices retain their raw data and cannot be applied to a different EQ.
+    /** Hush 0.17's `sound.json` (or a backup's "sound"): Sony's settings, kept until a Sony headset takes them. */
+    fun importLegacy(o: JSONObject) {
+        // That file also held the EQ library, in raw levels 0..20; it lives in the shared EqLibrary now.
         o.optJSONArray("library").objects().forEach { e ->
             if (EqLibrary.items.value.none { it.id == e.getString("id") }) {
                 val lv = e.getJSONArray("levels")
-                val oldLayout = e.optString("layout").takeIf { it.isNotBlank() && it != "null" }
-                val sony = oldLayout == null || oldLayout.startsWith("sony:") || oldLayout.startsWith("sony-mdr:")
-                EqLibrary.save(e.getString("name"), if (sony) "sony-${lv.length()}" else oldLayout!!,
-                    List(lv.length()) { if (sony) lv.getInt(it) - 10 else lv.getInt(it) },
+                EqLibrary.save(e.getString("name"), "sony-6", List(lv.length()) { lv.getInt(it) - 10 },
                     e.optString("source").takeIf { it.isNotEmpty() && it != "null" }, id = e.getString("id"))
             }
         }
@@ -206,23 +192,12 @@ object SceneStore {
                 AppRule(it.getString("pkg"), it.optString("label", it.getString("pkg")), action(it.optJSONObject("action")))
             },
         )
-        val oldActions = o.optJSONArray("scenes").objects().mapNotNull { it.optJSONObject("action") } +
-            o.optJSONArray("places").objects().mapNotNull { it.optJSONObject("action") } +
-            o.optJSONArray("apps").objects().mapNotNull { it.optJSONObject("action") } +
-            o.optJSONObject("activities")?.let { acts -> acts.keys().asSequence().mapNotNull(acts::optJSONObject).toList() }.orEmpty()
-        val namespace = oldActions.mapNotNull { it.optString("noiseNamespace").takeIf(String::isNotBlank) }
-            .firstOrNull { it != "sony-mdr" }
-        val moduleId = namespace?.substringBefore('-')?.takeIf(String::isNotBlank)
-            ?: moduleHint?.lowercase()?.takeIf(String::isNotBlank) ?: "sony"
         update { c ->
-            val target = DeviceRegistry.items.value.firstOrNull { it.moduleId == moduleId }?.key
-                ?: c.devices.keys.firstOrNull { it.startsWith("$moduleId:") }
+            val sony = c.devices.keys.firstOrNull { it.startsWith("sony:") }
             c.copy(
                 places = c.places + places.map { it.first }.filter { p -> c.places.none { it.id == p.id } },
-                devices = if (target != null) c.devices + (target to legacy) else c.devices,
-                legacySony = if (moduleId == "sony" && target == null) legacy else c.legacySony,
-                legacyByModule = if (moduleId != "sony" && target == null) c.legacyByModule + (moduleId to legacy)
-                    else c.legacyByModule - moduleId,
+                devices = if (sony != null) c.devices + (sony to legacy) else c.devices,
+                legacySony = if (sony != null) null else legacy,
             )
         }
     }
@@ -243,9 +218,6 @@ object SceneStore {
         }))
         put("devices", JSONObject().apply { c.devices.forEach { (k, v) -> put(k, encode(v)) } })
         c.legacySony?.let { put("legacySony", encode(it)) }
-        if (c.legacyByModule.isNotEmpty()) put("legacyByModule", JSONObject().apply {
-            c.legacyByModule.forEach { (id, scenes) -> put(id, encode(scenes)) }
-        })
     }
 
     private fun encode(d: DeviceScenes) = JSONObject().apply {
@@ -277,9 +249,6 @@ object SceneStore {
         },
         devices = o.optJSONObject("devices")?.let { d -> d.keys().asSequence().associateWith { decodeDevice(d.getJSONObject(it)) } }.orEmpty(),
         legacySony = o.optJSONObject("legacySony")?.let(::decodeDevice),
-        legacyByModule = o.optJSONObject("legacyByModule")?.let { pending ->
-            pending.keys().asSequence().associateWith { decodeDevice(pending.getJSONObject(it)) }
-        }.orEmpty(),
     )
 
     private fun decodeDevice(o: JSONObject): DeviceScenes {

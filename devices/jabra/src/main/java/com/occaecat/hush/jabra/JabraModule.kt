@@ -98,15 +98,7 @@ object JabraModule : DeviceModule {
         }.sortedBy { it.name }
     }
 
-    override fun remembered(context: Context): List<Candidate> {
-        val preferences = context.getSharedPreferences("hush", Context.MODE_PRIVATE)
-        val address = preferences.getString("address", null) ?: return emptyList()
-        if (preferences.getString("brand:$address", null) != "JABRA") return emptyList()
-        val savedModel = preferences.getString("model:$address", null)
-        val candidate = found.value.firstOrNull { it.address == address }
-        val model = savedModel?.let(::modelFor) ?: candidate?.modelId ?: return emptyList()
-        return listOf(Candidate(id, model, candidate?.name ?: savedModel ?: "Jabra earbuds", Transport.BLUETOOTH, address))
-    }
+    override fun remembered(context: Context): List<Candidate> = emptyList()
 
     @SuppressLint("MissingPermission")
     override fun onOpen(device: Device) {
