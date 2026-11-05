@@ -20,5 +20,5 @@ android {
 
 dependencies {
     testImplementation(libs.junit)
-    testImplementation("org.json:json:20240303")
+    testImplementation(libs.json)
 }
