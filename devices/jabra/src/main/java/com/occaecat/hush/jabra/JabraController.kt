@@ -199,6 +199,10 @@ class JabraController(
     }
 
     override val microphone = Microphone(Transport.BLUETOOTH, device.address)
+    /**
+     * Capability label only. The value, step range, and writes use Android's STREAM_MUSIC on the
+     * active route; no Jabra GNP playback-volume command is sent.
+     */
     override val volumeSource = Source.PHONE
     private val eqControl = JabraEqualizerControl(raw, scope, ::command)
     override val equalizer: Equalizer = eqControl
