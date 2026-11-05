@@ -190,10 +190,6 @@ object SonyModule : DeviceModule {
         if (vm.state.value.address == device.address) vm.forget()
     }
 
-    override fun onDeactivated() {
-        HeadphonesController.get(appContext).disconnect()
-    }
-
     override fun onIntent(context: Context, intent: Intent) = DeepLink.from(intent)
 
     private var controller: SonyController? = null

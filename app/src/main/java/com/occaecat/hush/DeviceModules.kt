@@ -17,7 +17,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -35,7 +34,6 @@ object DeviceModules {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val controllers = mutableMapOf<String, DeviceController>()
-    private val selectedKey = MutableStateFlow<String?>(null)
 
     fun module(id: String) = all.first { it.id == id }
 
@@ -50,13 +48,7 @@ object DeviceModules {
     }
 
     /** Opening a device connects to it when it isn't the one in use; demos have nothing to connect to. */
-    fun open(device: Device) {
-        if (device.isDemo) return
-        selectedKey.value = device.key
-        app.getSharedPreferences("device-selection", Context.MODE_PRIVATE).edit().putString("key", device.key).apply()
-        all.filter { it.id != device.moduleId }.forEach(DeviceModule::onDeactivated)
-        module(device.moduleId).onOpen(device)
-    }
+    fun open(device: Device) { if (!device.isDemo) module(device.moduleId).onOpen(device) }
 
     /** After every module's init: register what older versions remembered (once). */
     fun init(context: Context) {
@@ -65,14 +57,6 @@ object DeviceModules {
         // Debug builds stop at a brand that breaks the module contract (unit tests check the same).
         if (debuggable) all.flatMap(com.occaecat.hush.devices.Contract::check).let { check(it.isEmpty()) { it.joinToString("\n") } }
         DeviceRegistry.migrate(all.flatMap { it.remembered(context) })
-        val saved = app.getSharedPreferences("device-selection", Context.MODE_PRIVATE).getString("key", null)
-        val legacyAddress = app.getSharedPreferences("hush", Context.MODE_PRIVATE).getString("address", null)
-        val entry = DeviceRegistry.items.value.firstOrNull { it.key == saved }
-            ?: DeviceRegistry.items.value.firstOrNull { it.address == legacyAddress && legacyAddress != null }
-        entry?.let {
-            val device = Device(it.key, it.moduleId, it.name, it.transport, false, it.modelId, it.address)
-            open(device)
-        }
     }
 
     private val live: StateFlow<List<Device>> by lazy {
@@ -105,10 +89,6 @@ object DeviceModules {
         if (!device.isDemo) module(device.moduleId).onRemove(device)
         controllers.remove(device.key)
         DeviceRegistry.remove(device.key)
-        if (selectedKey.value == device.key) {
-            selectedKey.value = null
-            app.getSharedPreferences("device-selection", Context.MODE_PRIVATE).edit().remove("key").apply()
-        }
     }
 
     /** What Hush shows without a user choice: a wired device in use, then any device in use, then the first one. */
@@ -116,11 +96,6 @@ object DeviceModules {
         devices.firstOrNull { it.active && it.transport != Transport.BLUETOOTH }
             ?: devices.firstOrNull { it.active }
             ?: devices.firstOrNull()
-
-    internal fun preferred(devices: List<Device>, key: String?): Device? =
-        devices.firstOrNull { it.active && it.transport != Transport.BLUETOOTH }
-            ?: devices.firstOrNull { it.key == key }
-            ?: pick(devices)
 
     /**
      * Connected devices that are ready to take settings (noise control reported, if they have one), for scenes and
@@ -155,7 +130,6 @@ object DeviceModules {
 
     /** The device widgets show. */
     val current: StateFlow<Device?> by lazy {
-        combine(devices, selectedKey, ::preferred).distinctUntilChanged()
-            .stateIn(scope, SharingStarted.Eagerly, preferred(devices.value, selectedKey.value))
+        devices.map(::pick).distinctUntilChanged().stateIn(scope, SharingStarted.Eagerly, pick(devices.value))
     }
 }

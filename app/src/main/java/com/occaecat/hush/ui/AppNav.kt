@@ -220,24 +220,15 @@ fun HushApp(demo: Pair<Device, DeviceController>? = null) {
     val context = LocalContext.current
     val registered by DeviceModules.devices.collectAsState()
     val devices = demo?.let { listOf(it.first) } ?: registered
-    val selected by DeviceModules.current.collectAsState()
     val found by DeviceModules.found.collectAsState()
     val dismissed by DeviceRegistry.dismissed.collectAsState()
     fun controllerOf(d: Device) = if (demo != null && d.key == demo.first.key) demo.second else DeviceModules.controller(d)
     fun rootFor(list: List<Device>, prefer: String? = null): Route =
-        (list.firstOrNull { it.key == (prefer ?: selected?.key) } ?: DeviceModules.pick(list))
-            ?.let { Route.Home(it.key) } ?: Route.Welcome
+        (list.firstOrNull { it.key == prefer } ?: DeviceModules.pick(list))?.let { Route.Home(it.key) } ?: Route.Welcome
 
     val nav = rememberSaveable(saver = Navigator.Saver) { Navigator(mutableListOf(rootFor(devices)).toMutableStateList()) }
     // Switching devices stays on the tab the user was on.
     val tab = rememberSaveable { mutableStateOf(Tab.LISTEN) }
-
-    // A restored navigation stack may name the previous pair; follow the persisted selection on startup.
-    LaunchedEffect(selected?.key) {
-        if (demo == null) selected?.let { device ->
-            if (nav.stack.first() != Route.Home(device.key)) nav.switchTo(Route.Home(device.key))
-        }
-    }
 
     if (demo == null) {
         LaunchedEffect(Unit) {

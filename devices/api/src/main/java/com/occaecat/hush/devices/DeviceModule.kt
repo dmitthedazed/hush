@@ -64,9 +64,6 @@ interface DeviceModule {
     /** The user opened [device]: connect to it if it isn't the one in use. */
     fun onOpen(device: Device) {}
 
-    /** Another brand was opened; release this module's current control session, if any. */
-    fun onDeactivated() {}
-
     /** The user removed [device] from Hush: forget its connection settings. */
     fun onRemove(device: Device) {}
 

@@ -127,12 +127,6 @@ object JabraModule : DeviceModule {
         if (selected == address) { selected = null; live.value = emptyList() }
     }
 
-    override fun onDeactivated() {
-        selected?.let { controllers[it]?.disconnect() }
-        selected = null
-        live.value = emptyList()
-    }
-
     override fun controller(device: Device): DeviceController {
         val address = device.address ?: return JabraController(app, device, null)
         return controllers.getOrPut(address) {
