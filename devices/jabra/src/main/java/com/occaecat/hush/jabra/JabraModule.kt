@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
+import androidx.core.content.IntentCompat
 import com.occaecat.hush.devices.Candidate
 import com.occaecat.hush.devices.Connection
 import com.occaecat.hush.devices.Device
@@ -58,7 +59,9 @@ object JabraModule : DeviceModule {
         override fun onReceive(context: Context, intent: Intent) {
             scan(context)
             if (intent.action == BluetoothDevice.ACTION_ACL_CONNECTED) {
-                val address = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)?.address
+                val address = IntentCompat.getParcelableExtra(
+                    intent, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java
+                )?.address
                 if (address != null && address == selected) controllers[address]?.reconnect()
             }
         }
