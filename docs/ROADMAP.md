@@ -114,6 +114,4 @@ proof that the cut-out works. Brand plugins later.
 
 - **Logos for all protocols** the app shows (audio codecs and Bluetooth profiles such as LDAC, aptX, AAC, LC3, SBC, LE
   Audio), in the codec chips and device details. Check each logo's trademark terms and credit them in About.
-- Jabra (Elite 10 / 85t) on the module system, contributed in the open pull request: reads everything the headphones
-  report, firmware *check* only, never install.
 - Original product renders for non-Sony models; earbud and case glyphs are the fallback (`BatteryGlyphs`).
