@@ -250,7 +250,12 @@ fun BatteryStatus(
 
 /** Short battery facts for the device card ("72% · charging", "L 80%"). */
 fun batteryFacts(batteries: List<BatteryLevel>): List<String> = batteries.map { b ->
-    val head = if (b.part == BatteryPart.MAIN) "" else b.part.label.take(1) + " "
+    val head = when (b.part) {
+        BatteryPart.MAIN -> ""
+        BatteryPart.EARBUD_1 -> "1 "
+        BatteryPart.EARBUD_2 -> "2 "
+        else -> b.part.label.take(1) + " "
+    }
     head + "${b.level}%" + if (b.charging) " · charging" else ""
 }
 

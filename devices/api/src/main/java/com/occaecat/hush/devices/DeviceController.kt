@@ -53,8 +53,11 @@ interface DeviceController {
     /** Tapping the render in the hero (e.g. re-read the battery). */
     fun onHeroTap() {}
 
-    /** The device's own volume (0 until [DeviceState.volumeSteps]). */
+    /** Volume on the active route (0 until [DeviceState.volumeSteps]). */
     fun setVolume(level: Int) {}
+
+    /** When a controller exposes volume steps, the source if it is the phone's output stream. */
+    val volumeSource: Source? get() = null
 
     /**
      * Screens before the device UI (permissions, choosing which headset); call [content] when the shared UI should

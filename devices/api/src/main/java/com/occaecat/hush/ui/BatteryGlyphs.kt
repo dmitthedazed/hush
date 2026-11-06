@@ -17,11 +17,13 @@ import com.occaecat.hush.devices.BatteryPart
 val BatteryPart.glyph: ImageVector? get() = when (this) {
     BatteryPart.LEFT -> BatteryGlyphs.left
     BatteryPart.RIGHT -> BatteryGlyphs.right
+    BatteryPart.EARBUD_1, BatteryPart.EARBUD_2 -> BatteryGlyphs.earbud
     BatteryPart.CASE -> BatteryGlyphs.case
     BatteryPart.MAIN -> null
 }
 
 object BatteryGlyphs {
+    val earbud: ImageVector by lazy { glyph("Earbud") { bud() } }
     val right: ImageVector by lazy { glyph("EarbudRight") { bud() } }
 
     /** The right earbud mirrored across the middle. */

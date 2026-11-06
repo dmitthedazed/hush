@@ -10,6 +10,7 @@ import com.occaecat.hush.devices.DeviceRegistry
 import com.occaecat.hush.devices.Transport
 import com.occaecat.hush.devices.isDemo
 import com.occaecat.hush.fallback.withPhoneFallbacks
+import com.occaecat.hush.jabra.JabraModule
 import com.occaecat.hush.sony.SonyModule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,7 +25,7 @@ import kotlinx.coroutines.flow.stateIn
 
 /** Every brand Hush supports, in the order the add screen lists them. Adding a brand = one line here. */
 object Brands {
-    val all: List<DeviceModule> = listOf(SonyModule, AppleModule)
+    val all: List<DeviceModule> = listOf(SonyModule, AppleModule, JabraModule)
 }
 
 /** The brands' devices as one list for the shell: registered, live, found, and their controllers. */

@@ -29,6 +29,7 @@ dependencies {
     implementation(project(":devices:api"))
     implementation(project(":devices:sony"))
     implementation(project(":devices:apple"))
+    implementation(project(":devices:jabra"))
     // The watch companion route (WatchBridge).
     implementation(project(":link"))
     implementation(libs.play.services.wearable)

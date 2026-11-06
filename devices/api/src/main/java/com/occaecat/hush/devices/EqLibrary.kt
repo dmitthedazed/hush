@@ -63,7 +63,8 @@ object EqLibrary {
     fun shareCode(c: Curve) = CODE_V2 + c.layout + ":" + c.levels.joinToString(",") + "|" + c.name
 
     /** A code for [layout] with [bandCount] bands within [range]; null when it doesn't fit. */
-    fun parseCode(text: String, layout: String, bandCount: Int, range: IntRange): Pair<String, List<Int>>? {
+    fun parseCode(text: String, layout: String, bandCount: Int, range: IntRange,
+                  bandRanges: List<IntRange>? = null): Pair<String, List<Int>>? {
         val t = text.trim()
         val (codeLayout, body) = when {
             t.startsWith(CODE_V2) -> t.removePrefix(CODE_V2).let { it.substringBefore(':') to it.substringAfter(':', "") }
@@ -73,6 +74,7 @@ object EqLibrary {
         if (codeLayout != layout || body.isEmpty()) return null
         val db = body.substringBefore('|').split(',').map { it.trim().toIntOrNull() ?: return null }
         if (db.size != bandCount || db.any { it !in range }) return null
+        if (bandRanges != null && (bandRanges.size != bandCount || db.indices.any { db[it] !in bandRanges[it] })) return null
         return body.substringAfter('|', "Imported EQ") to db
     }
 

@@ -21,6 +21,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.core.content.IntentCompat
 import androidx.lifecycle.compose.LifecycleStartEffect
 import com.occaecat.hush.DeviceModules
 import com.occaecat.hush.devices.Candidate
@@ -278,7 +279,9 @@ class AddDeviceState internal constructor(
         fun BluetoothDevice.isAudio() = runCatching { bluetoothClass?.majorDeviceClass == BluetoothClass.Device.Major.AUDIO_VIDEO }
             .getOrDefault(false)
 
-        fun Intent.device(): BluetoothDevice? = getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+        fun Intent.device(): BluetoothDevice? = IntentCompat.getParcelableExtra(
+            this, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java
+        )
     }
 }
 

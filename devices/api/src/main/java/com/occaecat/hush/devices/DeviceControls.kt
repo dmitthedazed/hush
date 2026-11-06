@@ -79,7 +79,9 @@ data class BatteryLevel(
     val providedBy: Source = Source.DEVICE,
 )
 
-enum class BatteryPart(val label: String) { MAIN("Battery"), LEFT("Left"), RIGHT("Right"), CASE("Case") }
+enum class BatteryPart(val label: String) {
+    MAIN("Battery"), LEFT("Left"), RIGHT("Right"), EARBUD_1("Earbud 1"), EARBUD_2("Earbud 2"), CASE("Case")
+}
 
 // ---- settings ---------------------------------------------------------------------------------------------------
 

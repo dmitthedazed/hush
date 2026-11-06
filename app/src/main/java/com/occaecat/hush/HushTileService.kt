@@ -3,6 +3,7 @@ package com.occaecat.hush
 import android.content.ComponentName
 import android.content.Context
 import android.graphics.drawable.Icon
+import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import com.occaecat.hush.devices.Connection
@@ -51,6 +52,7 @@ class HushTileService : TileService() {
 
         /** Offers the tile for the control center once, after the first device is added (system dialog). */
         fun offer(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
             val prefs = context.getSharedPreferences("hush", 0)
             if (prefs.getBoolean("tile_offered", false)) return
             prefs.edit().putBoolean("tile_offered", true).apply()

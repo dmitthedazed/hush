@@ -156,7 +156,7 @@ fun EqLibraryPage(eq: Equalizer, onClose: () -> Unit) {
     }
     if (importing && current != null) {
         var text by remember { mutableStateOf("") }
-        val parsed = EqLibrary.parseCode(text, eq.layout, current.levels.size, range)
+        val parsed = EqLibrary.parseCode(text, eq.layout, current.levels.size, range, current.bandRanges)
         AlertDialog(
             onDismissRequest = { importing = false },
             title = { Text("Import EQ code") },

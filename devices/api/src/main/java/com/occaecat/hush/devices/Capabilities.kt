@@ -53,7 +53,7 @@ val DeviceController.capabilities: Capabilities get() {
         noise?.let { put(Feature.NOISE, it) }
         eq?.let { put(Feature.EQUALIZER, it); put(Feature.AUTO_EQ, driving(it)) }
         s.batteries.firstOrNull()?.let { put(Feature.BATTERY, it.providedBy) }
-        put(Feature.VOLUME, if (s.volumeSteps > 0) Source.DEVICE else Source.PHONE)
+        put(Feature.VOLUME, volumeSource ?: if (s.volumeSteps > 0) Source.DEVICE else Source.PHONE)
         put(Feature.SLEEP_TIMER, sleepTarget?.providedBy ?: Source.PHONE)
         firmware?.let { put(Feature.FIRMWARE, it.providedBy) }
         microphone?.let { put(Feature.MICROPHONE, Source.PHONE) }

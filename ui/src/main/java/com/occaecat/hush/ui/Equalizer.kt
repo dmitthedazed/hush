@@ -70,6 +70,8 @@ data class EqUi(
     val enabled: Boolean = true,
     /** False on a device whose presets can be picked but whose bands are fixed: the sliders only show the curve. */
     val editable: Boolean = true,
+    /** Optional individual band limits, in the same whole-dB units as [levels]. */
+    val bandRanges: List<IntRange>? = null,
 )
 
 /**
@@ -115,7 +117,9 @@ fun EqualizerHero(
             Spacer(Modifier.height(Space.l))
             Row(Modifier.fillMaxWidth().padding(horizontal = Space.m)) {
                 eq.levels.forEachIndexed { i, level ->
-                    EqBand(eq.labels.getOrElse(i) { "${i + 1}" }, level, eq.range, eq.enabled && eq.editable, Modifier.weight(1f)) { onBand(i, it) }
+                    EqBand(eq.labels.getOrElse(i) { "${i + 1}" }, level,
+                        eq.bandRanges?.getOrNull(i) ?: eq.range, eq.enabled && eq.editable,
+                        Modifier.weight(1f)) { onBand(i, it) }
                 }
             }
         } else {

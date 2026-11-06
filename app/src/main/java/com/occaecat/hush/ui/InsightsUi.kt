@@ -53,6 +53,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ListItemDefaults
@@ -65,7 +66,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.TextStyle
-import java.util.Locale
 import kotlin.math.roundToInt
 
 private fun hours(h: Double) = when {
@@ -288,7 +288,8 @@ private fun HearingPage(currentKey: String, onClose: () -> Unit) {
                             }
                         }
                         Spacer(Modifier.height(Space.xs))
-                        Text(d.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()), style = MaterialTheme.typography.labelSmall)
+                        Text(d.dayOfWeek.getDisplayName(TextStyle.NARROW, LocalLocale.current.platformLocale),
+                            style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }

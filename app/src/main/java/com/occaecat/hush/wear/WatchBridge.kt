@@ -11,6 +11,7 @@ import com.google.android.gms.wearable.WearableListenerService
 import com.occaecat.hush.DeviceModules
 import com.occaecat.hush.Phase
 import com.occaecat.hush.devices.Connection
+import com.occaecat.hush.devices.capabilities
 import com.occaecat.hush.devices.DeviceController
 import com.occaecat.hush.devices.DeviceState
 import com.occaecat.hush.devices.NoiseKind
@@ -77,6 +78,7 @@ object WatchBridge {
         val modes = c.noise?.modes.orEmpty()
         val active = modes.firstOrNull { it.id == noise?.active }
         val all = presets.flatMap { it.presets }
+        val equalizer = c.equalizer
         return Snapshot(
             phase = when (s.connection) {
                 Connection.CONNECTED -> Phase.CONNECTED
@@ -96,6 +98,13 @@ object WatchBridge {
             eqPreset = all.firstOrNull { it.active }?.id,
             eqPresets = all.map { Snapshot.Preset(it.id, it.name) },
             hasAddress = true,
+            brand = DeviceModules.current.value?.moduleId,
+            capabilities = c.capabilities.sources.mapKeys { it.key.name }.mapValues { it.value.name },
+            components = s.batteries.map { Snapshot.ComponentBattery(it.part.name, it.level, it.charging, it.providedBy.name) },
+            eq = equalizer?.state?.value?.let { current ->
+                Snapshot.EqMetadata(equalizer.layout, current.labels, current.levels,
+                    current.range.first, current.range.last, current.enabled)
+            },
         )
     }
 

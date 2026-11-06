@@ -10,6 +10,7 @@ material3Adaptive = "1.2.0"
 iconsExtended = "1.7.8"
 coroutines = "1.10.2"
 junit = "4.13.2"
+json = "20240303"
 libxposed = "102.0.0"
 glance = "1.2.0"
 playServicesWearable = "20.0.1"
@@ -68,6 +69,7 @@ wear-tooling-preview = { group = "androidx.wear", name = "wear-tooling-preview",
 tv-material = { group = "androidx.tv", name = "tv-material", version.ref = "tvMaterial" }
 androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "splashscreen" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+json = { group = "org.json", name = "json", version.ref = "json" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

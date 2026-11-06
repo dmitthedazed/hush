@@ -44,12 +44,26 @@ data class Snapshot(
     val eqPresets: List<Preset> = emptyList(),
     val hasAddress: Boolean = false,
     val reconnectReason: String? = null,
+    /** Optional additions: old Sony messages omit these. */
+    val brand: String? = null,
+    val capabilities: Map<String, String> = emptyMap(),
+    val components: List<ComponentBattery> = emptyList(),
+    val eq: EqMetadata? = null,
 ) {
     val connected get() = phase == Phase.CONNECTED
     val busy get() = phase == Phase.CONNECTING || phase == Phase.RECONNECTING
 
     data class Toggle(val id: String, val label: String, val on: Boolean)
     data class Preset(val id: String, val name: String)
+    data class ComponentBattery(val part: String, val level: Int, val charging: Boolean, val source: String)
+    data class EqMetadata(
+        val layout: String,
+        val labels: List<String>,
+        val levels: List<Int>,
+        val minimum: Int,
+        val maximum: Int,
+        val enabled: Boolean,
+    )
 
     fun toJson(): String = JSONObject().apply {
         put("phase", phase.name)
@@ -66,6 +80,15 @@ data class Snapshot(
         put("eqPresetList", JSONArray(eqPresets.map { JSONObject().put("id", it.id).put("name", it.name) }))
         put("hasAddress", hasAddress)
         putOpt("reconnectReason", reconnectReason)
+        putOpt("brand", brand)
+        put("capabilities", JSONObject(capabilities))
+        put("components", JSONArray(components.map { component ->
+            JSONObject().put("part", component.part).put("level", component.level)
+                .put("charging", component.charging).put("source", component.source)
+        }))
+        eq?.let { metadata -> put("eq", JSONObject().put("layout", metadata.layout)
+            .put("labels", JSONArray(metadata.labels)).put("levels", JSONArray(metadata.levels))
+            .put("minimum", metadata.minimum).put("maximum", metadata.maximum).put("enabled", metadata.enabled)) }
     }.toString()
 
     companion object {
@@ -99,6 +122,21 @@ data class Snapshot(
                     ?: legacyPresets.map { Preset(it, "Preset $it") },
                 hasAddress = o.optBoolean("hasAddress"),
                 reconnectReason = str("reconnectReason"),
+                brand = str("brand"),
+                capabilities = o.optJSONObject("capabilities")?.let { caps ->
+                    caps.keys().asSequence().associateWith { caps.getString(it) }
+                }.orEmpty(),
+                components = objects("components")?.map { part ->
+                    ComponentBattery(part.getString("part"), part.getInt("level"),
+                        part.optBoolean("charging"), part.optString("source", "DEVICE"))
+                }.orEmpty(),
+                eq = o.optJSONObject("eq")?.let { metadata ->
+                    val labels = metadata.getJSONArray("labels")
+                    val levels = metadata.getJSONArray("levels")
+                    EqMetadata(metadata.getString("layout"), List(labels.length()) { labels.getString(it) },
+                        List(levels.length()) { levels.getInt(it) }, metadata.getInt("minimum"),
+                        metadata.getInt("maximum"), metadata.optBoolean("enabled", true))
+                },
             )
         }.getOrNull()
     }
