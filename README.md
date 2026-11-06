@@ -6,7 +6,7 @@
 
 **Liberate your headphones from vendor apps.**
 
-No accounts, no tracking, no shady software. Sony MDR v1/v2 and Apple EarPods (USB-C) for now, more brands soon.
+No accounts, no tracking, no shady software. Sony MDR v1/v2, Jabra Elite 10 and Elite 85t, and Apple EarPods (USB-C) for now, more brands soon.
 
 [![Release](https://img.shields.io/github/v/release/dmitthedazed/hush?style=flat-square&color=d6d07a)](https://github.com/dmitthedazed/hush/releases/latest)
 ![Android 12+](https://img.shields.io/badge/Android-12%2B-3ddc84?style=flat-square&logo=android&logoColor=white)
@@ -33,6 +33,7 @@ Headphone makers ship heavy apps that want an account, log what you do and still
 | --- | --- | --- |
 | Sony | MDR v1 | Tested on WH-1000XM4 |
 | Sony | MDR v2 | Fully implemented, needs testers |
+| Jabra | GNP | Experimental, tested on the original Elite 10 (firmware 4.6.0) and Elite 85t (firmware 2.0.0) |
 | Apple | USB audio | EarPods (USB-C): equalizer on the phone, remote, authenticity check |
 | More brands | | Soon |
 
@@ -81,7 +82,7 @@ Home-screen widgets, a Quick Settings tile, a live notification with mode button
 
 1. Download `hush-<version>-phone.apk` from the [latest release](https://github.com/dmitthedazed/hush/releases/latest). Use `-wear` for the watch and `-tv` for Android TV.
 2. Pair the headphones in Android's Bluetooth settings, open Hush and pick them.
-3. Close the vendor app (for Sony, Sound Connect). The headphones talk to one app at a time.
+3. Close the vendor app (Sound Connect for Sony, Sound+ for Jabra). The headphones talk to one app at a time.
 
 Builds are signed with a development key, so Android asks once about an unknown developer. After that Hush updates itself from GitHub releases (Device → About → Updates).
 
@@ -94,6 +95,8 @@ Builds are signed with a development key, so Android asks once about an unknown 
 For Sony, Hush opens the headphones' RFCOMM control channel and speaks the MDR protocol: frames, ACKs, command tables 1 and 2. Sony's cloud features are reached the way Sound Connect reaches them: the Concierge service for tutorials and help, the model catalogue for per-colour renders, and `info.update.sony.net` for firmware.
 
 All of it is written up, with pointers into the decompiled Sound Connect 13.3.0, in [docs/NOTES.md](docs/NOTES.md).
+
+For Jabra, Hush speaks GNP over the same kind of RFCOMM channel and checks the product ID before showing any controls. Firmware is only checked against Jabra's public manifest; installing stays with Sound+. Contributed by [KonradIT](https://github.com/KonradIT), details in [docs/JABRA.md](docs/JABRA.md).
 
 </details>
 
@@ -117,7 +120,7 @@ Multi-device switching and remote control through a Hush network, among other pl
 
 ## Disclaimer
 
-Hush is an independent project and is not affiliated with, endorsed or supported by Sony, Apple or any other headphone maker. Product names and logos are trademarks of their owners: Sony, WH-1000XM4, Sound Connect, DSEE Extreme and LDAC belong to Sony Group Corporation; Apple and EarPods belong to Apple Inc.
+Hush is an independent project and is not affiliated with, endorsed or supported by Sony, Jabra, Apple or any other headphone maker. Product names and logos are trademarks of their owners: Sony, WH-1000XM4, Sound Connect, DSEE Extreme and LDAC belong to Sony Group Corporation; Jabra, Elite 10, Elite 85t and Sound+ belong to GN Audio A/S; Apple and EarPods belong to Apple Inc.
 
 Product images, tutorials, help articles and firmware information belong to their manufacturers. Hush fetches them from the manufacturers' own servers, only for use with headphones you own.
 
