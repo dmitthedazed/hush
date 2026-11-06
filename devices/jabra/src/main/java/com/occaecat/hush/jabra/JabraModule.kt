@@ -18,6 +18,7 @@ import com.occaecat.hush.devices.DeviceController
 import com.occaecat.hush.devices.DeviceModule
 import com.occaecat.hush.devices.DeviceRegistry
 import com.occaecat.hush.devices.Model
+import com.occaecat.hush.gnp.JabraModel
 import com.occaecat.hush.devices.Transport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -117,6 +118,13 @@ object JabraModule : DeviceModule {
         val address = device.address ?: return
         controllers.remove(address)?.dispose()
         if (selected == address) { selected = null; live.value = emptyList() }
+    }
+
+    override fun hasDemo(model: Model) = true
+
+    override fun demoController(device: Device): DeviceController {
+        val model = if (device.modelId == "elite-85t") JabraModel.ELITE_85T else JabraModel.ELITE_10
+        return JabraController(app, device, null) { JabraDemo(model) }.also { it.reconnect() }
     }
 
     override fun controller(device: Device): DeviceController {

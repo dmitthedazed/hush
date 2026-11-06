@@ -62,6 +62,8 @@ class JabraController(
     private val app: Context,
     private val device: Device,
     private val bluetooth: BluetoothDevice?,
+    /** A demo pair in place of [bluetooth]: a fresh one per session. */
+    private val demo: (() -> GnpClient)? = null,
 ) : DeviceController {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val raw = MutableStateFlow(JabraState())
@@ -281,7 +283,7 @@ class JabraController(
         phoneVolume.value = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
     }
     override fun reconnect() {
-        val target = bluetooth ?: return
+        if (bluetooth == null && demo == null) return
         if (phase.value == Connection.CONNECTED || phase.value == Connection.CONNECTING) return
         session?.cancel()
         backend?.close()
@@ -293,7 +295,7 @@ class JabraController(
             "elite-10" -> JabraModel.ELITE_10
             else -> null
         }
-        val next = JabraBackend(target, scope, hint)
+        val next = demo?.let { JabraBackend(it(), scope, hint) } ?: JabraBackend(bluetooth!!, scope, hint)
         backend = next
         session = scope.launch {
             val collector = launch { next.state.collect { if (backend === next) raw.value = it } }
