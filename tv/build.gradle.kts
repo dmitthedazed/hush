@@ -13,8 +13,8 @@ android {
         applicationId = "com.occaecat.hush"
         minSdk = 31 // Android TV 12+, same floor as :core
         targetSdk = 36
-        versionCode = 17
-        versionName = "0.17.0"
+        versionCode = 18
+        versionName = "0.18.0"
     }
 
     compileOptions {
