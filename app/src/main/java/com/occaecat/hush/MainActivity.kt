@@ -14,6 +14,11 @@ import com.occaecat.hush.ui.theme.HushTheme
 
 /** The shell: [HushApp] draws every device with one UI ([com.occaecat.hush.ui.DeviceUi]) and owns the navigation. */
 class MainActivity : ComponentActivity() {
+    override fun onStart() {
+        super.onStart()
+        HushService.startIfActive(this)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         route(intent)

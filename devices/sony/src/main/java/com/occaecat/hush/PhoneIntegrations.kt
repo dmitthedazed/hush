@@ -9,8 +9,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
- * Sony's surfaces outside the app UI: the foreground service that keeps its session alive and the ColorOS My
- * Devices card. Alerts, the tile, widgets and the watch are the app's and follow any brand.
+ * Sony's ColorOS My Devices card. Headphone controls and alerts are managed by the app.
  */
 object PhoneIntegrations {
 
@@ -26,11 +25,6 @@ object PhoneIntegrations {
         // Picking a headset in the app also brings back a card removed in My Devices.
         controller.onPick = { app.getSharedPreferences("hush", 0).edit().remove(DeviceCardProvider.PREF_HIDDEN).apply() }
 
-        scope.launch {
-            state.map { it.phase != Phase.IDLE }.distinctUntilChanged().collect { active ->
-                if (active) HushService.start(app) else HushService.stop(app)
-            }
-        }
         scope.launch {
             state.map(::CardSnapshot).distinctUntilChanged().collect { snapshot ->
                 DeviceCard.publish(app, snapshot)
