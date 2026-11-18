@@ -64,12 +64,14 @@ object DeviceModules {
             .stateIn(scope, SharingStarted.Eagerly, all.flatMap { it.devices.value })
     }
 
-    private fun merge(registered: List<DeviceRegistry.Entry>, live: List<Device>) = registered.map { r ->
+    internal fun merge(registered: List<DeviceRegistry.Entry>, live: List<Device>) = registered.mapNotNull { r ->
+        // A different build may have registered devices for modules this build doesn't ship.
+        if (all.none { it.id == r.moduleId }) return@mapNotNull null
         val l = live.firstOrNull { it.key == r.key }
         Device(r.key, r.moduleId, r.name, r.transport, active = l?.active == true, modelId = r.modelId, address = r.address)
     }
 
-    /** The registered devices, connected or not, in the order they were added. */
+    /** The registered devices supported by this build, in the order they were added. */
     val devices: StateFlow<List<Device>> by lazy {
         combine(DeviceRegistry.items, live, ::merge).stateIn(scope, SharingStarted.Eagerly, merge(DeviceRegistry.items.value, live.value))
     }

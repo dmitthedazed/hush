@@ -25,7 +25,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         route(intent)
-        if (com.occaecat.hush.devices.DeviceRegistry.items.value.isNotEmpty()) HushTileService.offer(this)
+        if (DeviceModules.devices.value.isNotEmpty()) HushTileService.offer(this)
         // Debug builds: `am start -n com.occaecat.hush/.MainActivity --ez demo true` shows the first model with a demo
         // (any brand) connected without hardware, for checking layouts on emulators; `--es demo <model name>` picks one.
         val demoModel = intent.getStringExtra("demo")

@@ -178,7 +178,7 @@ private fun ColumnScope.StartPage(state: AddDeviceState, onBrand: (String) -> Un
     val found by DeviceModules.found.collectAsStateWithLifecycle()
     // Paired audio devices no module claims: Hush can see them but not drive them.
     val claimed = remember(found) { found.mapNotNull { it.address }.toSet() }
-    val registered by DeviceRegistry.items.collectAsStateWithLifecycle()
+    val registered by DeviceModules.devices.collectAsStateWithLifecycle()
     val others = remember(state.bonded, claimed, registered) {
         val known = claimed + registered.mapNotNull { it.address }
         state.bonded.filter { it.address !in known && !it.supported }
