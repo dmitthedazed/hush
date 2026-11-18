@@ -5,8 +5,8 @@ import android.content.Context
 import android.content.Intent
 
 /**
- * ACL_CONNECTED is one of the few Bluetooth broadcasts still delivered to manifest receivers. Waking up here
- * creates the controller, whose A2DP watcher opens the session once the saved headset's audio link is up.
+ * ACL_CONNECTED is delivered to this manifest receiver even when the app process is cold. Starting the app
+ * lets the Bluetooth modules see A2DP links that are already up and watch for links that come up next.
  */
 class AclReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {

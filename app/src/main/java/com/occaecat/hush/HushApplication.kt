@@ -17,6 +17,7 @@ class HushApplication : Application() {
         // Home screen widgets (a live Glance session recomposes by itself; this covers ended sessions) and the tile.
         val app = this
         val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
+        HushService.watch(app, scope)
         scope.launch {
             com.occaecat.hush.widget.widgetState(app).collect {
                 com.occaecat.hush.widget.HushWidgets.updateAll(app)

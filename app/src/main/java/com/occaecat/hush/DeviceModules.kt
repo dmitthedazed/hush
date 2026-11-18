@@ -64,6 +64,11 @@ object DeviceModules {
             .stateIn(scope, SharingStarted.Eagerly, all.flatMap { it.devices.value })
     }
 
+    internal val bluetoothSessions by lazy {
+        live.map { devices -> devices.filter { it.transport == Transport.BLUETOOTH && !it.isDemo } }
+            .distinctUntilChanged { old, new -> old.map { it.key } == new.map { it.key } }
+    }
+
     private fun merge(registered: List<DeviceRegistry.Entry>, live: List<Device>) = registered.map { r ->
         val l = live.firstOrNull { it.key == r.key }
         Device(r.key, r.moduleId, r.name, r.transport, active = l?.active == true, modelId = r.modelId, address = r.address)

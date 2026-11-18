@@ -2,8 +2,11 @@ package com.occaecat.hush.jabra
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothA2dp
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -54,16 +57,20 @@ object JabraModule : DeviceModule {
     override val devices: StateFlow<List<Device>> = live
     private val controllers = mutableMapOf<String, JabraController>()
     private var selected: String? = null
+    private var watchingAudio = false
     private lateinit var app: Context
 
     private val bluetoothReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            scan(context)
-            if (intent.action == BluetoothDevice.ACTION_ACL_CONNECTED) {
+            if (intent.action == BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED) {
+                if (intent.getIntExtra(BluetoothProfile.EXTRA_STATE, BluetoothProfile.STATE_DISCONNECTED)
+                    != BluetoothProfile.STATE_CONNECTED) return
                 val address = IntentCompat.getParcelableExtra(
                     intent, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java
-                )?.address
-                if (address != null && address == selected) controllers[address]?.reconnect()
+                )?.address ?: return
+                connectAudio(listOf(address))
+            } else {
+                scan(context)
             }
         }
     }
@@ -72,8 +79,8 @@ object JabraModule : DeviceModule {
         app = context.applicationContext
         val filter = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
-            addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
-            addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
+            addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
+            addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
         }
         ContextCompat.registerReceiver(app, bluetoothReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
         scan(app)
@@ -91,6 +98,16 @@ object JabraModule : DeviceModule {
         val remembered = DeviceRegistry.items.value.filter { it.moduleId == id && it.address != null }
         val saved = remembered.associateBy { it.address }
         val adapter = app.getSystemService(BluetoothManager::class.java).adapter ?: return
+        if (!watchingAudio) {
+            watchingAudio = adapter.getProfileProxy(app, object : BluetoothProfile.ServiceListener {
+                override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
+                    // A cold start can miss the broadcast for audio links that are already up.
+                    connectAudio(runCatching { proxy.connectedDevices.map { it.address } }.getOrDefault(emptyList()))
+                }
+
+                override fun onServiceDisconnected(profile: Int) = Unit
+            }, BluetoothProfile.A2DP)
+        }
         found.value = adapter.bondedDevices.mapNotNull { device ->
             val name = device.name ?: saved[device.address]?.name.orEmpty()
             val model = modelFor(name) ?: saved[device.address]?.modelId ?: return@mapNotNull null
@@ -100,6 +117,13 @@ object JabraModule : DeviceModule {
     }
 
     override fun remembered(context: Context): List<Candidate> = emptyList()
+
+    private fun connectAudio(addresses: List<String>) {
+        val entry = savedJabraAudioDevice(DeviceRegistry.items.value, addresses, selected) ?: return
+        onOpen(
+            Device(entry.key, id, entry.name, entry.transport, active = false, modelId = entry.modelId, address = entry.address),
+        )
+    }
 
     @SuppressLint("MissingPermission")
     override fun onOpen(device: Device) {
@@ -143,4 +167,17 @@ object JabraModule : DeviceModule {
 
     internal const val ELITE_10_ART = "https://assets2.jabra.com/7/7/0/1/7701381317c83cf54e47fcaaf95fabff58363c12_0_Elite_10_TitaniumBlack.png"
     internal const val ELITE_85T_ART = "https://assets2.jabra.com/a/8/5/9/a8598c278583d541a7e8f57ab3f71a73b740fa73_Jabra_elite85t_black_01a.png"
+}
+
+/** Match the saved Classic audio endpoint by address, even if the earbuds also have a BLE bond. */
+internal fun savedJabraAudioDevice(
+    entries: List<DeviceRegistry.Entry>,
+    addresses: List<String>,
+    selected: String?,
+): DeviceRegistry.Entry? {
+    val connected = entries.filter { entry ->
+        entry.moduleId == "jabra" && entry.transport == Transport.BLUETOOTH &&
+            addresses.any { it.equals(entry.address, ignoreCase = true) }
+    }
+    return connected.firstOrNull { it.address == selected } ?: connected.firstOrNull()
 }
